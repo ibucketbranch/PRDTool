@@ -439,7 +439,7 @@ A web-based dashboard that:
 > LLM-generated explanation. If Ollama is unavailable, falls back to category
 > mapper + filename signals.
 
-- [ ] Lock top-level bins in taxonomy
+- [x] Lock top-level bins in taxonomy
   - `ROOT_TAXONOMY.json`: add `locked: true` to root categories (VA, Finances Bin, Work Bin, etc.)
   - Locked bins cannot be renamed, moved, or merged by the agent
   - New subcategories can still be created under locked bins

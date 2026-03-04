@@ -147,6 +147,17 @@ from organizer.prompt_registry import (
     get_prompt,
     list_available_prompts,
 )
+from organizer.taxonomy_utils import (
+    Taxonomy,
+    TaxonomyBin,
+    load_taxonomy,
+    save_taxonomy,
+    is_bin_locked,
+    get_locked_bins,
+    validate_bin_operation,
+    is_path_under_locked_bin,
+    create_default_taxonomy,
+)
 
 __all__ = [
     "normalize_folder_name",
@@ -270,4 +281,13 @@ __all__ = [
     "DEFAULT_PROMPTS",
     "get_prompt",
     "list_available_prompts",
+    "Taxonomy",
+    "TaxonomyBin",
+    "load_taxonomy",
+    "save_taxonomy",
+    "is_bin_locked",
+    "get_locked_bins",
+    "validate_bin_operation",
+    "is_path_under_locked_bin",
+    "create_default_taxonomy",
 ]

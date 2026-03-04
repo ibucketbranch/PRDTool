@@ -2653,3 +2653,22 @@ Task completed successfully.
   - All 35 inbox/continuous agent tests pass
   - Linting passes (ruff)
   - PRD Phase 16.2 task "Replace keyword matching in InboxProcessor._classify() with LLM-first classification" marked complete
+
+## 2026-03-03
+- Implemented "Lock top-level bins in taxonomy" (Phase 12.1)
+  - Created organizer/taxonomy_utils.py module with:
+    - TaxonomyBin dataclass for representing bins with locked status
+    - Taxonomy dataclass for the full taxonomy structure
+    - load_taxonomy() / save_taxonomy() for JSON persistence
+    - is_bin_locked() helper supporting both Taxonomy objects and raw dicts
+    - get_locked_bins() to list all locked bins
+    - validate_bin_operation() to check if rename/move/merge/create_subcategory is allowed
+    - is_path_under_locked_bin() to check if a path is under a locked bin
+    - create_default_taxonomy() to create standard locked taxonomy
+  - Updated ROOT_TAXONOMY.json to add locked_bins field:
+    - All 8 root bins (Family Bin, Finances Bin, Legal Bin, Personal Bin, Work Bin, VA, Archive, Needs-Review) are locked
+    - Updated version to 2026-03-03
+  - Created tests/test_taxonomy_utils.py with 47 comprehensive tests
+  - Updated organizer/__init__.py to export new module functions
+- All 896 tests pass, linting passes
+- Task completed successfully
