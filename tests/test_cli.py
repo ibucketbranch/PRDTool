@@ -3632,3 +3632,250 @@ class TestRunExecuteWithContentMismatchConfirmation:
             assert "EXECUTION SAFETY CHECK" in captured.out
             # Should start execution
             assert "Creating backup of plan..." in captured.out
+
+
+class TestDryRunCLI:
+    """Tests for --dry-run CLI flag."""
+
+    def test_dry_run_argument_parsing(self):
+        """Test --dry-run argument is parsed correctly."""
+        parser = create_parser()
+        args = parser.parse_args(["--agent-once", "--dry-run"])
+        assert args.dry_run is True
+
+    def test_dry_run_defaults_to_false(self):
+        """Test --dry-run defaults to False."""
+        parser = create_parser()
+        args = parser.parse_args(["--agent-once"])
+        assert args.dry_run is False
+
+    def test_dry_run_task_id_argument_parsing(self):
+        """Test --dry-run-task-id argument is parsed correctly."""
+        parser = create_parser()
+        args = parser.parse_args(
+            ["--agent-once", "--dry-run", "--dry-run-task-id", "phase11_task1"]
+        )
+        assert args.dry_run_task_id == "phase11_task1"
+
+    def test_dry_run_task_id_defaults_to_none(self):
+        """Test --dry-run-task-id defaults to None."""
+        parser = create_parser()
+        args = parser.parse_args(["--agent-once", "--dry-run"])
+        assert args.dry_run_task_id is None
+
+    def test_dry_run_requires_agent_action(self):
+        """Test --dry-run requires --agent-once or --agent-run."""
+        parser = create_parser()
+        args = parser.parse_args(["--scan", "--dry-run"])
+        errors = validate_args(args)
+        assert any("--dry-run can only be used with" in e for e in errors)
+
+    def test_dry_run_valid_with_agent_once(self):
+        """Test --dry-run is valid with --agent-once."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create agent config file
+            config_path = Path(tmpdir) / ".organizer" / "agent_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text('{"base_path": "."}', encoding="utf-8")
+
+            parser = create_parser()
+            args = parser.parse_args([
+                "--agent-once",
+                "--dry-run",
+                "--path", tmpdir,
+                "--agent-config", str(config_path),
+            ])
+            errors = validate_args(args)
+            assert not any("--dry-run" in e for e in errors)
+
+    def test_dry_run_valid_with_agent_run(self):
+        """Test --dry-run is valid with --agent-run."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create agent config file
+            config_path = Path(tmpdir) / ".organizer" / "agent_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text('{"base_path": "."}', encoding="utf-8")
+
+            parser = create_parser()
+            args = parser.parse_args([
+                "--agent-run",
+                "--dry-run",
+                "--path", tmpdir,
+                "--agent-config", str(config_path),
+                "--agent-max-cycles", "1",
+            ])
+            errors = validate_args(args)
+            assert not any("--dry-run" in e for e in errors)
+
+    def test_dry_run_task_id_requires_dry_run(self):
+        """Test --dry-run-task-id requires --dry-run flag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parser = create_parser()
+            args = parser.parse_args([
+                "--agent-once",
+                "--dry-run-task-id", "task123",
+                "--path", tmpdir,
+            ])
+            errors = validate_args(args)
+            assert any("--dry-run-task-id requires --dry-run" in e for e in errors)
+
+    def test_dry_run_output_format(self, capsys):
+        """Test dry-run mode outputs proper report format."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create base directory structure
+            base = Path(tmpdir) / "root"
+            base.mkdir()
+            inbox = base / "In-Box"
+            inbox.mkdir()
+            (inbox / "test.pdf").write_text("content", encoding="utf-8")
+
+            # Create agent config
+            config_path = Path(tmpdir) / ".organizer" / "agent_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_data = {
+                "base_path": str(base),
+                "inbox_enabled": True,
+                "inbox_folder_name": "In-Box",
+                "auto_execute": False,
+                "project_homing_enabled": False,
+                "scatter_enabled": False,
+                "queue_dir": str(Path(tmpdir) / "queue"),
+                "plans_dir": str(Path(tmpdir) / "plans"),
+                "logs_dir": str(Path(tmpdir) / "logs"),
+                "state_file": str(Path(tmpdir) / "state.json"),
+                "empty_folder_policy_file": str(Path(tmpdir) / "empty_policy.json"),
+            }
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+            # Run with dry-run flag
+            main([
+                "--agent-once",
+                "--dry-run",
+                "--agent-config", str(config_path),
+                "--path", tmpdir,
+            ])
+
+            captured = capsys.readouterr()
+
+            # Should show dry-run report format
+            assert "DRY-RUN VALIDATION REPORT" in captured.out
+            assert "Cycle ID:" in captured.out
+            assert "Would-move count:" in captured.out
+            assert "Confidence distribution:" in captured.out
+            assert "Conflicts detected:" in captured.out
+
+    def test_dry_run_with_task_id_shows_task_info(self, capsys):
+        """Test dry-run mode with task ID shows task tracking info."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create base directory structure
+            base = Path(tmpdir) / "root"
+            base.mkdir()
+
+            # Create agent config
+            config_path = Path(tmpdir) / ".organizer" / "agent_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_data = {
+                "base_path": str(base),
+                "inbox_enabled": False,
+                "auto_execute": False,
+                "project_homing_enabled": False,
+                "scatter_enabled": False,
+                "queue_dir": str(Path(tmpdir) / "queue"),
+                "plans_dir": str(Path(tmpdir) / "plans"),
+                "logs_dir": str(Path(tmpdir) / "logs"),
+                "state_file": str(Path(tmpdir) / "state.json"),
+                "empty_folder_policy_file": str(Path(tmpdir) / "empty_policy.json"),
+                "prd_task_status_file": str(Path(tmpdir) / "prd_status.json"),
+            }
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+            # Run with dry-run flag and task ID
+            main([
+                "--agent-once",
+                "--dry-run",
+                "--dry-run-task-id", "phase11_dry_run",
+                "--agent-config", str(config_path),
+                "--path", tmpdir,
+            ])
+
+            captured = capsys.readouterr()
+
+            # Should show task ID info
+            assert "Task ID: phase11_dry_run" in captured.out
+
+    def test_dry_run_returns_success_on_pass(self):
+        """Test dry-run returns exit code 0 when validation passes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create base directory structure (empty, so no proposals)
+            base = Path(tmpdir) / "root"
+            base.mkdir()
+
+            # Create agent config
+            config_path = Path(tmpdir) / ".organizer" / "agent_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_data = {
+                "base_path": str(base),
+                "inbox_enabled": False,
+                "auto_execute": False,
+                "project_homing_enabled": False,
+                "scatter_enabled": False,
+                "queue_dir": str(Path(tmpdir) / "queue"),
+                "plans_dir": str(Path(tmpdir) / "plans"),
+                "logs_dir": str(Path(tmpdir) / "logs"),
+                "state_file": str(Path(tmpdir) / "state.json"),
+                "empty_folder_policy_file": str(Path(tmpdir) / "empty_policy.json"),
+            }
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+            # Run with dry-run flag
+            exit_code = main([
+                "--agent-once",
+                "--dry-run",
+                "--agent-config", str(config_path),
+                "--path", tmpdir,
+            ])
+
+            # Should return success (0) when dry-run passes
+            assert exit_code == 0
+
+    def test_dry_run_agent_run_shows_mode_info(self, capsys):
+        """Test dry-run with --agent-run shows mode information."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create base directory structure
+            base = Path(tmpdir) / "root"
+            base.mkdir()
+
+            # Create agent config with short interval
+            config_path = Path(tmpdir) / ".organizer" / "agent_config.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_data = {
+                "base_path": str(base),
+                "interval_seconds": 1,
+                "inbox_enabled": False,
+                "auto_execute": False,
+                "project_homing_enabled": False,
+                "scatter_enabled": False,
+                "queue_dir": str(Path(tmpdir) / "queue"),
+                "plans_dir": str(Path(tmpdir) / "plans"),
+                "logs_dir": str(Path(tmpdir) / "logs"),
+                "state_file": str(Path(tmpdir) / "state.json"),
+                "empty_folder_policy_file": str(Path(tmpdir) / "empty_policy.json"),
+            }
+            config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+            # Run with dry-run flag and max-cycles=1 to exit quickly
+            main([
+                "--agent-run",
+                "--dry-run",
+                "--dry-run-task-id", "test_task",
+                "--agent-config", str(config_path),
+                "--path", tmpdir,
+                "--agent-max-cycles", "1",
+            ])
+
+            captured = capsys.readouterr()
+
+            # Should show dry-run mode info
+            assert "[DRY-RUN MODE]" in captured.out
+            assert "Dry-run mode: Actions will be proposed and validated but not executed" in captured.out
+            assert "Tracking PRD task: test_task" in captured.out

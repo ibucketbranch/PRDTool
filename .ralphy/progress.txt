@@ -2502,3 +2502,46 @@ Task completed successfully.
 - All 110 related tests pass (continuous_agent, dry_run_validator, prd_task_status)
 - Linting passes
 - Task completed successfully
+
+## 2026-03-03
+- Implemented `--dry-run` CLI flag for agent cycle (Phase 11)
+  - Added `--dry-run` argument to CLI parser
+    - Enables dry-run mode when running `--agent-once` or `--agent-run`
+    - Agent proposes actions but does not execute them
+    - Validates proposals against filesystem and taxonomy
+  - Added `--dry-run-task-id` argument
+    - Optionally tracks PRD task status during dry-run
+    - Task is marked as "ready" when dry-run passes
+  - Added validation rules:
+    - `--dry-run` requires `--agent-once` or `--agent-run`
+    - `--dry-run-task-id` requires `--dry-run`
+  - Updated `run_agent()` to apply dry-run settings from CLI to config
+  - Added dry-run report output format when using `--agent-once`:
+    - Shows "DRY-RUN VALIDATION REPORT" header
+    - Displays cycle ID and task ID
+    - Reports would-move count (total proposals)
+    - Shows confidence distribution (high vs low confidence)
+    - Shows conflicts detected
+    - Shows validation pass/fail status
+    - Lists errors if validation failed
+  - Updated `--agent-run` to show dry-run mode info at startup
+    - Shows "[DRY-RUN MODE]" indicator
+    - Shows "Actions will be proposed and validated but not executed"
+    - Shows tracked PRD task ID if provided
+  - Returns exit code 0 on dry-run pass, 1 on dry-run fail
+- Created 12 new tests in `tests/test_cli.py::TestDryRunCLI`:
+  - test_dry_run_argument_parsing: verifies --dry-run is parsed correctly
+  - test_dry_run_defaults_to_false: verifies default value
+  - test_dry_run_task_id_argument_parsing: verifies --dry-run-task-id parsing
+  - test_dry_run_task_id_defaults_to_none: verifies default value
+  - test_dry_run_requires_agent_action: validates requires --agent-once or --agent-run
+  - test_dry_run_valid_with_agent_once: validates works with --agent-once
+  - test_dry_run_valid_with_agent_run: validates works with --agent-run
+  - test_dry_run_task_id_requires_dry_run: validates --dry-run-task-id requires --dry-run
+  - test_dry_run_output_format: verifies dry-run report format output
+  - test_dry_run_with_task_id_shows_task_info: verifies task ID is displayed
+  - test_dry_run_returns_success_on_pass: verifies exit code 0 on pass
+  - test_dry_run_agent_run_shows_mode_info: verifies --agent-run mode info
+- All 213 CLI tests pass (201 existing + 12 new)
+- Linting passes (ruff)
+- PRD Phase 11 task "Add --dry-run flag to agent cycle" marked complete

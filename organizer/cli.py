@@ -213,6 +213,22 @@ def create_parser() -> argparse.ArgumentParser:
         f"(default: {DEFAULT_LAUNCHD_LABEL})",
     )
 
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run agent in dry-run mode: proposes actions but does not execute. "
+        "Validates proposals against filesystem and taxonomy, reports would-move "
+        "count, confidence distribution, and conflicts.",
+    )
+
+    parser.add_argument(
+        "--dry-run-task-id",
+        type=str,
+        metavar="TASK_ID",
+        help="PRD task ID to track for dry-run validation. When dry-run passes, "
+        "the task is marked as 'ready'. Only used with --dry-run.",
+    )
+
     return parser
 
 
@@ -318,6 +334,17 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         or args.agent_launchd_status
     ):
         errors.append("--agent-init-config must be used by itself")
+
+    # Validate --dry-run usage
+    if args.dry_run:
+        if not (args.agent_once or args.agent_run):
+            errors.append(
+                "--dry-run can only be used with --agent-once or --agent-run"
+            )
+
+    # Validate --dry-run-task-id usage
+    if args.dry_run_task_id and not args.dry_run:
+        errors.append("--dry-run-task-id requires --dry-run")
 
     # Check --db-path is not used without --content-aware
     if args.db_path and not args.content_aware:
@@ -483,25 +510,87 @@ def run_agent(args: argparse.Namespace) -> int:
         return 1
 
     config = ContinuousAgentConfig.load(config_path)
+
+    # Apply dry-run settings from CLI arguments
+    if args.dry_run:
+        config.dry_run_mode = True
+        config.dry_run_task_id = args.dry_run_task_id or ""
+
     agent = ContinuousOrganizerAgent(config)
 
     if args.agent_once:
         summary = agent.run_cycle()
-        print(
-            "Agent cycle complete: "
-            f"{summary['cycle_id']} "
-            f"(proposals={summary['queue']['proposal_count']}, "
-            f"executed_groups={summary['execution']['executed_group_count']})"
-        )
-        print(f"Plan: {summary['plan']['path']}")
-        print(f"Queue: {summary['queue']['path']}")
-        return 0
+
+        # Check if dry-run mode
+        dry_run_info = summary.get("dry_run", {})
+        if dry_run_info.get("dry_run_mode"):
+            # Dry-run output
+            print("DRY-RUN VALIDATION REPORT")
+            print("=" * 40)
+            print(f"Cycle ID: {summary['cycle_id']}")
+            print(f"Task ID: {dry_run_info.get('task_id', 'N/A')}")
+            print()
+
+            # Would-move count
+            total_proposals = dry_run_info.get("total_proposals", 0)
+            print(f"Would-move count: {total_proposals}")
+
+            # Confidence distribution
+            high_conf = dry_run_info.get("high_confidence_count", 0)
+            low_conf = dry_run_info.get("low_confidence_count", 0)
+            print("Confidence distribution:")
+            print(f"  High confidence (>= {config.min_auto_confidence}): {high_conf}")
+            print(f"  Low confidence (< {config.min_auto_confidence}): {low_conf}")
+
+            # Conflicts
+            conflict_count = dry_run_info.get("conflict_count", 0)
+            print(f"Conflicts detected: {conflict_count}")
+
+            # Validation result
+            print()
+            validation_passed = dry_run_info.get("validation_passed", False)
+            if validation_passed:
+                print("✅ Dry-run validation PASSED")
+                if dry_run_info.get("task_id"):
+                    print(f"   Task '{dry_run_info['task_id']}' marked as READY")
+            else:
+                print("❌ Dry-run validation FAILED")
+                errors = dry_run_info.get("errors", [])
+                if errors:
+                    print(f"   Errors ({len(errors)}):")
+                    for error in errors[:10]:  # Show first 10 errors
+                        print(f"     - {error}")
+                    if len(errors) > 10:
+                        print(f"     ... and {len(errors) - 10} more")
+
+            print()
+            print(f"Plan: {summary['plan']['path']}")
+            print(f"Queue: {summary['queue']['path']}")
+            return 0 if validation_passed else 1
+        else:
+            # Normal output
+            print(
+                "Agent cycle complete: "
+                f"{summary['cycle_id']} "
+                f"(proposals={summary['queue']['proposal_count']}, "
+                f"executed_groups={summary['execution']['executed_group_count']})"
+            )
+            print(f"Plan: {summary['plan']['path']}")
+            print(f"Queue: {summary['queue']['path']}")
+            return 0
 
     if args.agent_run:
+        mode_info = " [DRY-RUN MODE]" if config.dry_run_mode else ""
         print(
-            "Starting continuous organizer agent "
+            f"Starting continuous organizer agent{mode_info} "
             f"(interval={config.interval_seconds}s, base_path={config.base_path})"
         )
+        if config.dry_run_mode:
+            print(
+                "Dry-run mode: Actions will be proposed and validated but not executed."
+            )
+            if config.dry_run_task_id:
+                print(f"Tracking PRD task: {config.dry_run_task_id}")
         agent.run_forever(max_cycles=args.agent_max_cycles)
         return 0
 

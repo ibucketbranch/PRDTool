@@ -418,7 +418,7 @@ A web-based dashboard that:
 - [x] Wire dry-run validation into agent cycle
   - After `--agent-once` completes: if cycle ran in dry-run mode and all actions succeeded, mark associated PRD tasks as `dry_run_pass`
   - Auto-transition `dry_run_pass` → `ready` (no human gate needed for green runs)
-- [ ] Add `--dry-run` flag to agent cycle
+- [x] Add `--dry-run` flag to agent cycle
   - Agent proposes actions but does not execute; validates proposals against filesystem and taxonomy
   - Reports: would-move count, confidence distribution, any conflicts
 - [ ] Add `GET /api/agents/ready-tasks` dashboard endpoint
