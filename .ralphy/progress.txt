@@ -2672,3 +2672,53 @@ Task completed successfully.
   - Updated organizer/__init__.py to export new module functions
 - All 896 tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-03
+- Implemented "Create `organizer/scatter_detector.py` module (LLM-native)" (Phase 12)
+  - Updated `organizer/scatter_detector.py` with LLM-native functionality:
+    - Added `ModelTier`, `TaskProfile` imports from model_router
+    - Added `Taxonomy`, `is_bin_locked` imports from taxonomy_utils
+    - Extended `ScatterDetector.__init__()` to accept `llm_client`, `model_router`, `use_llm` parameters
+    - Auto-creates `ModelRouter` when `llm_client` is provided but no router given
+    - Added `_get_available_bins()` method to list bins from taxonomy (supports both Taxonomy and dict)
+    - Added `_is_bin_locked()` method using taxonomy_utils
+    - Added `_parse_llm_json_response()` for robust JSON parsing (handles markdown blocks, text around JSON)
+    - Added `_extract_confidence()` helper for confidence extraction with clamping
+    - Added `_validate_with_llm()` method implementing LLM validation with T1→T2 escalation:
+      - Uses T1 Fast model by default (task_type="validate", complexity="low")
+      - Automatic escalation to T2 Smart when confidence < escalation_threshold
+      - Uses prompt_registry or inline prompts for validation
+      - Returns None for model_used when LLM fails to trigger keyword fallback
+    - Updated `_build_bins_list()` to show locked status for bins
+    - Updated `validate_file()` to use LLM validation when available:
+      - First checks keywords to identify potential violations
+      - If keywords suggest violation, validates with LLM if available
+      - Falls back to keyword results when LLM fails or unavailable
+    - Updated `suggest_subpath()` with LLM-powered path preservation:
+      - Uses T2 Smart model for subfolder structure suggestions
+      - Falls back to year/agency extraction from filename
+    - Added `_suggest_subpath_with_llm()` for T2 Smart path preservation
+    - Added `_suggest_subpath_with_keywords()` for keyword-based path suggestions
+    - Updated `detect_scatter()` to track LLM usage and model_used across all violations
+    - Updated `detect_scatter` convenience function with llm_client and model_router parameters
+  - Updated `organizer/__init__.py` to export:
+    - `ScatterViolation`, `ScatterDetectionResult`, `PathPreservationResult`
+    - `ScatterDetector`, `detect_scatter`, `load_scatter_report`, `save_scatter_report`
+  - Created comprehensive test suite `tests/test_scatter_detector.py` with 52 tests:
+    - TestScatterViolation (5 tests): creation, LLM fields, serialization
+    - TestScatterDetectionResult (3 tests): creation, with violations, serialization
+    - TestPathPreservationResult (1 test): creation
+    - TestScatterDetectorInit (7 tests): basic, taxonomy object/dict, LLM client, custom router, use_llm flag, threshold
+    - TestKeywordFallback (5 tests): no LLM, tax/resume/VA keywords, correct placement
+    - TestLLMValidation (3 tests): LLM used, LLM confirms correct, LLM error fallback
+    - TestEscalation (2 tests): low confidence escalation, no escalation on high confidence
+    - TestPathPreservation (4 tests): year extraction, agency extraction, LLM path, no subpath
+    - TestLockedBinProtection (3 tests): is_bin_locked, bins list shows locked, dict taxonomy
+    - TestDetectScatter (5 tests): basic, max_files, extension filter, nonexistent path, single file
+    - TestDetectScatterFunction (2 tests): basic usage, with LLM client
+    - TestJSONParsing (5 tests): clean JSON, markdown, text around, invalid, confidence extraction
+    - TestReportPersistence (1 test): save and load report
+    - TestEdgeCases (6 tests): empty taxonomy, hidden files/dirs, file not in bin, content preview
+- All 52 tests pass
+- Linting passes (fixed unused import)
+- PRD Phase 12 task "Create `organizer/scatter_detector.py` module (LLM-native)" marked complete

@@ -158,6 +158,15 @@ from organizer.taxonomy_utils import (
     is_path_under_locked_bin,
     create_default_taxonomy,
 )
+from organizer.scatter_detector import (
+    ScatterViolation,
+    ScatterDetectionResult,
+    PathPreservationResult,
+    ScatterDetector,
+    detect_scatter,
+    load_scatter_report,
+    save_scatter_report,
+)
 
 __all__ = [
     "normalize_folder_name",
@@ -290,4 +299,11 @@ __all__ = [
     "validate_bin_operation",
     "is_path_under_locked_bin",
     "create_default_taxonomy",
+    "ScatterViolation",
+    "ScatterDetectionResult",
+    "PathPreservationResult",
+    "ScatterDetector",
+    "detect_scatter",
+    "load_scatter_report",
+    "save_scatter_report",
 ]

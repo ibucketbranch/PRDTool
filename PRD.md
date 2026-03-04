@@ -443,7 +443,7 @@ A web-based dashboard that:
   - `ROOT_TAXONOMY.json`: add `locked: true` to root categories (VA, Finances Bin, Work Bin, etc.)
   - Locked bins cannot be renamed, moved, or merged by the agent
   - New subcategories can still be created under locked bins
-- [ ] Create `organizer/scatter_detector.py` module (LLM-native)
+- [x] Create `organizer/scatter_detector.py` module (LLM-native)
   - `ScatterViolation` dataclass: file_path, current_bin, expected_bin, confidence, reason, model_used
   - `detect_scatter(base_path, taxonomy, llm_client) -> list[ScatterViolation]`
   - For each file, call **T1 Fast** with prompt:
