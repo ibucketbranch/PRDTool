@@ -427,7 +427,7 @@ A web-based dashboard that:
 - [x] Add ready-tasks panel to Agents dashboard page
   - Shows tasks that passed dry-run and are ready to execute
   - One-click "Execute" button to run the task for real
-- [ ] Add tests
+- [x] Add tests
   - `test_dry_run_validator.py`: pass/fail detection, status transitions, ready marking
 
 ### Phase 12: Scatter-Agent (LLM-Native)

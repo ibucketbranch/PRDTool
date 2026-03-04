@@ -2597,3 +2597,26 @@ Task completed successfully.
 - All 31 ready-tasks related tests pass (17 API + 14 UI)
 - Linting passes on new code
 - PRD Phase 11 task "Add ready-tasks panel to Agents dashboard page" marked complete
+
+- Verified Phase 11 tests task completion (already implemented)
+  - Reviewed `tests/test_dry_run_validator.py`:
+    - 63 tests covering pass/fail detection, status transitions, ready marking
+    - TestDryRunResult (6 tests): creation, serialization roundtrip
+    - TestFailurePatterns (14 tests): pytest failed/error, assertion error, lint errors, build failures
+    - TestSuccessPatterns (10 tests): pytest passed, build success, lint passed
+    - TestErrorExtraction (9 tests): pytest errors, lint errors, deduplication, truncation
+    - TestValidateDryRun (9 tests): passing/failing tests, tracker updates, auto_mark_ready
+    - TestMarkReady (4 tests): manual ready marking, already ready, failed state
+    - TestGetReadyTasks (3 tests): empty, multiple, excludes failed
+    - TestGetTaskStatus (4 tests): untested, passed, failed, ready
+    - TestStatusTransitions (3 tests): happy path, fail-then-pass, manual ready
+  - Reviewed `tests/test_prd_task_status.py`:
+    - 37 tests covering PRDTaskStatusTracker and related classes
+    - TestDryRunStatus (6 tests): enum values, string conversion
+    - TestTaskStatus (6 tests): creation, serialization, roundtrip
+    - TestPRDTaskStatusTracker (25 tests): status tracking, transitions, persistence
+  - All 100 dry-run validator tests pass
+  - All 519 organizer tests pass
+  - Fixed unrelated lint error: removed unused `asdict` import from inbox_processor.py
+  - Linting passes on all organizer code
+  - PRD Phase 11 task "Add tests" marked complete

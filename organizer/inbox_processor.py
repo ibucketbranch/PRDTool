@@ -12,7 +12,7 @@ import json
 import re
 import shutil
 import subprocess
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
