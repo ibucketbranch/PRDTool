@@ -2428,3 +2428,32 @@ Task completed successfully.
 - All 174 LLM-related tests pass (35 prompt_registry + 30 llm_client + 109 model_router)
 - Linting passes (ruff)
 - PRD Phase 16.1 prompt management system task marked complete
+
+- Implemented `dry_run_status` field for PRD task tracking (Phase 11.1)
+  - Created `organizer/prd_task_status.py` module
+  - `DryRunStatus` enum with values: `untested`, `dry_run_pass`, `dry_run_fail`, `ready`
+  - `TaskStatus` dataclass: task_id, status, last_dry_run_at, last_errors, marked_ready_at, history
+    - `to_dict()` and `from_dict()` for JSON serialization
+    - Full history tracking of status transitions
+  - `PRDTaskStatusTracker` class:
+    - Persists to `.organizer/agent/prd_task_status.json`
+    - `get_status(task_id)`: get current status (defaults to UNTESTED)
+    - `get_task(task_id)`: get full TaskStatus record
+    - `mark_dry_run_pass(task_id)`: mark task as passing dry-run
+    - `mark_dry_run_fail(task_id, errors)`: mark task as failing with error list
+    - `mark_ready(task_id)`: transition from dry_run_pass to ready
+    - `auto_transition_to_ready(task_id)`: automatic pass → ready transition
+    - `list_by_status(status)`: filter tasks by status
+    - `list_ready_tasks()`: get all ready tasks
+    - `list_all()`: get all tracked tasks
+    - `reset_task(task_id)`: reset to untested
+    - `clear()`: clear all task statuses
+    - Handles corrupted/empty files gracefully
+    - Creates parent directories automatically
+- Created `tests/test_prd_task_status.py` with 38 unit tests covering:
+  - TestDryRunStatus: enum values, string creation, invalid values
+  - TestTaskStatus: defaults, all fields, to_dict, from_dict, roundtrip
+  - TestPRDTaskStatusTracker: creation, get_status, mark_pass/fail/ready,
+    auto_transition, list_by_status, persistence, error handling, history
+- All 38 tests pass, linting passes
+- PRD Phase 11.1 task marked complete

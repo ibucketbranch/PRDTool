@@ -408,7 +408,7 @@ A web-based dashboard that:
 > and execution — no manual triage step between a green dry-run and sprint
 > planning.
 
-- [ ] Add `dry_run_status` field to PRD task tracking
+- [x] Add `dry_run_status` field to PRD task tracking
   - Possible values: `untested`, `dry_run_pass`, `dry_run_fail`, `ready`
   - Stored in `.organizer/agent/prd_task_status.json` (task_id → status map)
 - [ ] Create `organizer/dry_run_validator.py` module
