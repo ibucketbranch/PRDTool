@@ -622,7 +622,7 @@ A web-based dashboard that:
   - `generate(prompt, model, temperature, max_tokens, timeout_s) -> LLMResponse`
   - `LLMResponse` dataclass: text, model_used, duration_ms, tokens_eval, success
   - Connection pooling via `requests.Session`; reuse across calls in same cycle
-- [ ] Create `ModelRouter` class for multi-LLM task routing
+- [x] Create `ModelRouter` class for multi-LLM task routing
   - `ModelTier` enum: FAST, SMART, CLOUD
   - `TaskProfile` dataclass: task_type (classify, validate, analyze, enrich, generate), complexity (low, medium, high), content_length
   - `select_model(task_profile) -> str`: picks the right model name based on task + availability

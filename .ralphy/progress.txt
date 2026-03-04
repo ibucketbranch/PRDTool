@@ -2265,3 +2265,66 @@ Task completed successfully.
 - All 30 tests pass
 - Linting passes (ruff)
 - PRD Phase 16.1 first task marked complete
+
+## 2026-03-03
+- Created `organizer/model_router.py` module (Phase 16.1: LLM Engine, second task)
+  - Added `ModelTier` enum: FAST, SMART, CLOUD for multi-tier model routing
+  - Added `TaskType` enum: classify, validate, analyze, enrich, generate
+  - Added `Complexity` enum: low, medium, high for task complexity levels
+  - Added `TaskProfile` dataclass: task_type, complexity, content_length
+    - Validates task_type and complexity values on creation
+  - Added `ModelConfig` dataclass for configurable model routing:
+    - fast, smart, cloud model names
+    - cloud_enabled flag
+    - escalation_threshold (default 0.75)
+    - from_dict() and to_dict() methods for JSON config loading
+  - Added `RoutingDecision` dataclass: model, tier, reason, fallback_used
+  - Added `HealthState` dataclass for caching Ollama health with 60s TTL
+  - Added `ModelRouter` class:
+    - __init__(llm_client, config, config_path): initializes with optional LLM client and config
+    - _load_config(): loads from agent_config.json or uses defaults
+    - _refresh_health_state(): refreshes cached Ollama and model availability
+    - _get_health_state(): returns cached state, refreshing if expired
+    - _is_model_available(): checks if a model is available in Ollama
+    - _get_model_for_tier(): returns configured model name for a tier
+    - _get_preferred_tier(): returns preferred tier for a task profile
+    - select_model(profile): selects best available model for a task
+    - route(profile): returns RoutingDecision with full details
+    - get_escalation_threshold(): returns configured threshold
+    - should_escalate(confidence, tier): determines if escalation needed
+    - get_escalation_tier(tier): returns next tier for escalation
+    - is_ollama_available(): checks if Ollama is accessible
+    - get_available_models(): returns set of available model names
+    - invalidate_cache(): forces health state refresh
+  - Default routing table routes tasks to appropriate tiers:
+    - classify/validate (low/medium) -> FAST
+    - classify/validate (high) -> SMART
+    - analyze/enrich (all) -> SMART
+    - generate (low) -> FAST, (medium/high) -> SMART
+  - Graceful degradation: falls back to lower tiers when preferred unavailable
+  - Raises RuntimeError when Ollama is down or no models available
+- Created `tests/test_model_router.py` with 62 unit tests covering:
+  - TestModelTier: enum values
+  - TestTaskType: all task type values
+  - TestComplexity: all complexity values
+  - TestTaskProfile: creation, defaults, validation, all valid types/complexities
+  - TestModelConfig: defaults, custom values, from_dict, to_dict
+  - TestRoutingDecision: creation, default fallback
+  - TestHealthState: creation, defaults, expiration
+  - TestModelRouterInit: default, with client, with config, config from file, missing/invalid config
+  - TestModelRouterRouting: select model, route returns decision, all task types, routing table
+  - TestModelRouterAvailability: available model, fallback, Ollama down, no models, partial match
+  - TestModelRouterHealthCache: caching, invalidation, availability checks
+  - TestModelRouterEscalation: threshold, should_escalate, tier escalation, cloud escalation
+  - TestModelRouterCloudTier: cloud disabled, cloud fallback chain
+  - TestModelRouterConfig: config property
+  - TestModelRouterIntegration: full workflow, graceful degradation, model field variation
+- Also created stub `organizer/scatter_detector.py` to fix broken import in continuous_agent.py:
+  - ScatterViolation dataclass
+  - ScatterDetectionResult dataclass (errors as list[str] per continuous_agent interface)
+  - PathPreservationResult dataclass
+  - ScatterDetector class with keyword-based fallback validation
+  - detect_scatter(), load_scatter_report(), save_scatter_report() convenience functions
+- All 98 tests pass (62 model_router, 30 llm_client, 6 continuous_agent)
+- Linting passes (ruff)
+- PRD Phase 16.1 ModelRouter task marked complete
