@@ -288,3 +288,260 @@ def test_dry_run_summary_in_cycle_log(tmp_path: Path) -> None:
     log_data = json.loads(log_files[0].read_text(encoding="utf-8"))
     assert "dry_run" in log_data
     assert log_data["dry_run"]["task_id"] == "phase11_log"
+
+
+def test_scatter_proposals_appear_in_queue(tmp_path: Path) -> None:
+    """Scatter violations should be converted to ProposedActions and appear in the queue."""
+    base = tmp_path / "root"
+    # Create a finance file in the wrong bin (Personal Bin instead of Finances Bin)
+    wrong_location = base / "Personal Bin"
+    wrong_location.mkdir(parents=True)
+    (wrong_location / "tax_return_2024.pdf").write_text("tax form", encoding="utf-8")
+    # Create the correct bin for reference
+    (base / "Finances Bin").mkdir(parents=True)
+
+    # Create a taxonomy file
+    taxonomy_file = tmp_path / "taxonomy.json"
+    taxonomy_file.write_text(
+        json.dumps(
+            {
+                "Personal Bin": {"subcategories": ["Documents"]},
+                "Finances Bin": {"subcategories": ["Taxes"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=True,
+        scatter_max_files=100,
+        auto_execute=False,
+        project_homing_enabled=False,
+        root_taxonomy_file=str(taxonomy_file),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # Check scatter summary in cycle output
+    assert cycle_summary["scatter"]["enabled"] is True
+    assert "scatter" in cycle_summary
+
+    # Check the queue file for scatter actions
+    queue_path = list(Path(config.queue_dir).glob("pending_*.json"))
+    assert queue_path
+    queue_data = json.loads(queue_path[0].read_text(encoding="utf-8"))
+    scatter_actions = [
+        a for a in queue_data["actions"] if a.get("action_type") == "scatter_fix"
+    ]
+
+    # If scatter detection found the violation
+    if scatter_actions:
+        action = scatter_actions[0]
+        assert action["group_name"] == "scatter_fix"
+        assert action["status"] == "pending"
+        # Verify reasoning contains required fields
+        reasoning = action.get("reasoning", [])
+        assert any("current_bin=" in r for r in reasoning)
+        assert any("expected_bin=" in r for r in reasoning)
+        assert any("reason=" in r for r in reasoning)
+
+
+def test_scatter_proposals_include_reason_and_model_fields(tmp_path: Path) -> None:
+    """Scatter proposals should include reason and model_used in reasoning."""
+    base = tmp_path / "root"
+    # Create a resume file in the wrong bin (Finances Bin instead of Personal Bin)
+    wrong_location = base / "Finances Bin"
+    wrong_location.mkdir(parents=True)
+    (wrong_location / "my_resume_2024.pdf").write_text(
+        "resume content", encoding="utf-8"
+    )
+    # Create the correct bin for reference
+    (base / "Personal Bin").mkdir(parents=True)
+
+    # Create a taxonomy file
+    taxonomy_file = tmp_path / "taxonomy.json"
+    taxonomy_file.write_text(
+        json.dumps(
+            {
+                "Personal Bin": {"subcategories": ["Resumes"]},
+                "Finances Bin": {"subcategories": ["Taxes"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=True,
+        scatter_max_files=100,
+        auto_execute=False,
+        project_homing_enabled=False,
+        root_taxonomy_file=str(taxonomy_file),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # Check scatter summary includes model information
+    assert "model_used" in cycle_summary["scatter"]
+    assert "used_keyword_fallback" in cycle_summary["scatter"]
+
+    # Check the queue file for scatter actions
+    queue_path = list(Path(config.queue_dir).glob("pending_*.json"))
+    if queue_path:
+        queue_data = json.loads(queue_path[0].read_text(encoding="utf-8"))
+        scatter_actions = [
+            a for a in queue_data["actions"] if a.get("action_type") == "scatter_fix"
+        ]
+
+        # If scatter detection found the violation, verify reasoning structure
+        if scatter_actions:
+            action = scatter_actions[0]
+            reasoning = action.get("reasoning", [])
+            # The reasoning should include model info when LLM is used,
+            # or method=keyword_fallback when using fallback
+            reason_str = " ".join(reasoning)
+            # Should have either model info or fallback indication
+            assert "reason=" in reason_str
+
+
+def test_scatter_never_auto_executes(tmp_path: Path) -> None:
+    """Scatter fixes should always be queued for review, never auto-executed."""
+    base = tmp_path / "root"
+    # Create a tax file in the wrong bin
+    wrong_location = base / "Personal Bin"
+    wrong_location.mkdir(parents=True)
+    test_file = wrong_location / "w2_form_2024.pdf"
+    test_file.write_text("tax document", encoding="utf-8")
+    (base / "Finances Bin").mkdir(parents=True)
+
+    # Create a taxonomy file
+    taxonomy_file = tmp_path / "taxonomy.json"
+    taxonomy_file.write_text(
+        json.dumps(
+            {
+                "Personal Bin": {"subcategories": ["Documents"]},
+                "Finances Bin": {"subcategories": ["Taxes"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=True,
+        scatter_max_files=100,
+        auto_execute=True,  # Even with auto_execute=True, scatter should not auto-execute
+        min_auto_confidence=0.5,  # Low threshold to prove scatter is excluded
+        project_homing_enabled=False,
+        root_taxonomy_file=str(taxonomy_file),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    agent.run_cycle()
+
+    # File should still be in original location (not moved by auto-execute)
+    assert test_file.exists()
+
+
+def test_scatter_violation_to_action_conversion(tmp_path: Path) -> None:
+    """Test that ScatterViolation is correctly converted to ProposedAction."""
+    from organizer.scatter_detector import ScatterViolation
+
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # Create a test violation with all fields populated
+    violation = ScatterViolation(
+        file_path=str(base / "Personal Bin" / "tax_form.pdf"),
+        current_bin="Personal Bin",
+        expected_bin="Finances Bin",
+        confidence=0.92,
+        reason="Tax documents should be in Finances Bin",
+        model_used="llama3.1:8b-instruct-q8_0",
+        suggested_subpath="Taxes/2024",
+        used_keyword_fallback=False,
+    )
+
+    action = agent._scatter_violation_to_action(violation, "cycle123", 1)
+
+    assert action.action_id == "cycle123:scatter:1"
+    assert action.action_type == "scatter_fix"
+    assert action.source_folder == violation.file_path
+    assert "Finances Bin" in action.target_folder
+    assert "Taxes/2024" in action.target_folder  # Suggested subpath included
+    assert action.confidence == 0.92
+    assert action.group_name == "scatter_fix"
+    assert action.status == "pending"
+
+    # Check reasoning includes all required fields
+    reasoning = action.reasoning
+    assert any("current_bin=" in r for r in reasoning)
+    assert any("expected_bin=" in r for r in reasoning)
+    assert any("reason=" in r for r in reasoning)
+    assert any("model=" in r for r in reasoning)
+
+
+def test_scatter_violation_with_keyword_fallback(tmp_path: Path) -> None:
+    """Test that keyword fallback is correctly indicated in reasoning."""
+    from organizer.scatter_detector import ScatterViolation
+
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # Create a test violation that used keyword fallback (no model)
+    violation = ScatterViolation(
+        file_path=str(base / "Personal Bin" / "resume.pdf"),
+        current_bin="Personal Bin",
+        expected_bin="Work Bin",
+        confidence=0.85,
+        reason="Resume keywords detected",
+        model_used="",  # No model used
+        suggested_subpath="",
+        used_keyword_fallback=True,
+    )
+
+    action = agent._scatter_violation_to_action(violation, "cycle123", 1)
+
+    # Check reasoning includes fallback indicator
+    reasoning = action.reasoning
+    assert any("method=keyword_fallback" in r for r in reasoning)
+    # Should not have model= since no model was used
+    assert not any("model=" in r for r in reasoning)

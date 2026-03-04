@@ -651,7 +651,7 @@ class ContinuousOrganizerAgent:
         # Load taxonomy if configured
         taxonomy = None
         if self.config.root_taxonomy_file:
-            from organizer.taxonomy import load_taxonomy
+            from organizer.taxonomy_utils import load_taxonomy
 
             taxonomy = load_taxonomy(self.config.root_taxonomy_file)
 

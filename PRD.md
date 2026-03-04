@@ -457,7 +457,7 @@ A web-based dashboard that:
 - [x] Resync canonical registry with taxonomy
   - Cross-check `canonical_registry.json` entries against `ROOT_TAXONOMY.json`
   - Remove orphaned entries; add missing entries
-- [ ] Add scatter report to agent cycle
+- [x] Add scatter report to agent cycle
   - After inbox step, run scatter detection; add violations as `ProposedAction` with `action_type="scatter_fix"`
   - Always queue for review (never auto-execute); each proposal includes `reason` and `model_used`
 - [ ] Add `GET /api/scatter-report` dashboard endpoint

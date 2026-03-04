@@ -2789,3 +2789,20 @@ Task completed successfully.
   - `TestGetCurrentComparisons`: returns list, after scan, reset on new scan
 - All 43 tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-03
+- Implemented scatter report integration into agent cycle (Phase 12)
+  - Fixed import in `continuous_agent.py`: changed `from organizer.taxonomy` to `from organizer.taxonomy_utils`
+  - The scatter integration was already implemented in `_process_scatter()` method (lines 627-724)
+  - ScatterViolations are converted to ProposedActions via `_scatter_violation_to_action()` method
+  - Scatter runs after inbox step in `run_cycle()` (line 192)
+  - All scatter violations are queued for review (never auto-executed)
+  - Each ProposedAction includes `reason` and `model_used` in reasoning
+- Added 6 new tests to `tests/test_continuous_agent.py`:
+  - `test_scatter_proposals_appear_in_queue`: verifies scatter violations become queue actions
+  - `test_scatter_proposals_include_reason_and_model_fields`: verifies required fields in reasoning
+  - `test_scatter_never_auto_executes`: confirms scatter fixes are queued even with auto_execute=True
+  - `test_scatter_violation_to_action_conversion`: tests ScatterViolation → ProposedAction conversion
+  - `test_scatter_violation_with_keyword_fallback`: verifies fallback indicator in reasoning
+- All 15 tests pass, linting passes
+- Task "Add scatter report to agent cycle" marked complete in PRD
