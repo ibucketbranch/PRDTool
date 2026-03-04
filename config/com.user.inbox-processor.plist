@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label (unique identifier) -->
+    <key>Label</key>
+    <string>com.user.inbox-processor</string>
+    
+    <!-- Program to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/michaelvalderrama/Websites/TheConversation/venv/bin/python3</string>
+        <string>/Users/michaelvalderrama/Websites/TheConversation/scripts/inbox_processor.py</string>
+        <string>--process</string>
+    </array>
+    
+    <!-- Run on load (at login) -->
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <!-- Run every 10 minutes (600 seconds) -->
+    <key>StartInterval</key>
+    <integer>600</integer>
+    
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GROQ_API_KEY</key>
+        <string>YOUR_GROQ_API_KEY_HERE</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/michaelvalderrama/Websites/TheConversation</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/michaelvalderrama/Websites/TheConversation</string>
+    
+    <!-- Standard output and error logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/michaelvalderrama/.inbox_processor_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/michaelvalderrama/.inbox_processor_stderr.log</string>
+    
+    <!-- Keep alive (restart if crashes) -->
+    <key>KeepAlive</key>
+    <false/>
+    
+    <!-- Only run if connected to network -->
+    <key>StartOnMount</key>
+    <false/>
+    
+    <!-- Run only when user is logged in -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+</dict>
+</plist>

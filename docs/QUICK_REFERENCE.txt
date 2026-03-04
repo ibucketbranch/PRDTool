@@ -1,0 +1,172 @@
+┌─────────────────────────────────────────────────────────────────────┐
+│         UNIFIED DOCUMENT MANAGEMENT - QUICK REFERENCE               │
+│                   🎉 UPDATED: January 5, 2026                       │
+└─────────────────────────────────────────────────────────────────────┘
+
+🚀 SETUP
+  ./setup.sh                           # One-time setup
+  export GEMINI_API_KEY="..."          # Primary LLM (Gemini)
+  export GROQ_API_KEY="..."            # Fallback LLM (Groq)
+  supabase db reset                    # Apply all migrations
+  pip install -r requirements.txt      # Install deps (includes Gemini)
+  ./install_monitor.sh                 # Install auto-monitor
+
+🔔 PUSH NOTIFICATIONS (NEW!)
+  python3 notification_service.py --status        # Check enabled services
+  python3 notification_service.py --test          # Send test notification
+  
+  Setup ntfy.sh (free, no signup):
+    export NTFY_TOPIC="documents_$(whoami)_$(date +%s)"
+    # Install ntfy app on phone, subscribe to your topic
+  
+  Setup Pushover ($5, iOS/Android):
+    export PUSHOVER_TOKEN="your_token"
+    export PUSHOVER_USER="your_user_key"
+
+📦 STAGING WORKFLOW (NEW!)
+  # Process to staging (verify before committing)
+  python3 inbox_processor.py --process
+  
+  # Review staged files
+  open ~/Library/Mobile\ Documents/com~apple~CloudDocs/In-Box/Processed/
+  
+  # Finalize to permanent location
+  python3 finalize_staged.py --finalize
+  
+  # Auto-finalize files older than 7 days
+  python3 finalize_staged.py --finalize --auto-days 7
+  
+  # Skip staging (direct to final location)
+  python3 inbox_processor.py --process --no-staging
+
+📂 BATCH PROCESSING (NEW! - Process existing collections)
+  # Preview next batch (dry-run, 10 files)
+  python3 batch_processor.py ~/Documents/Personal --dry-run
+  
+  # Process next batch (10 files, oldest folders first)
+  python3 batch_processor.py ~/Documents/Personal --process
+  
+  # Process larger batch (25 files)
+  python3 batch_processor.py ~/Documents/Personal --process --batch-size 25
+  
+  # Check progress
+  python3 batch_processor.py ~/Documents/Personal --status
+  
+  # Reset and start over
+  python3 batch_processor.py ~/Documents/Personal --reset
+  
+  # Process multiple bins
+  python3 batch_processor.py ~/iCloud/Personal\ Bin --process
+  python3 batch_processor.py ~/iCloud/Work\ Bin --process
+
+🔔 AUTOMATIC MONITORING
+  ./install_monitor.sh                 # Install (runs on login)
+  ./uninstall_monitor.sh               # Uninstall
+  python document_monitor.py --test    # Test notifications
+  python document_monitor.py --once    # Manual check
+
+📥 IMPORT EXISTING FOLDERS
+  python folder_structure_importer.py ~/Library/Mobile\ Documents/com~apple~CloudDocs --dry-run
+  python folder_structure_importer.py ~/Library/Mobile\ Documents/com~apple~CloudDocs
+  python folder_structure_importer.py ~/iCloud/Personal\ Bin
+  python folder_structure_importer.py --stats
+
+📄 PROCESS DOCUMENTS
+  python unified_document_manager.py process file.pdf
+  python unified_document_manager.py process /path/to/folder --directory
+  python unified_document_manager.py process file.pdf --mode conversation
+
+🔍 SEARCH (Enhanced with Context Bins!)
+  python unified_document_manager.py search "find my registration"
+  python unified_document_manager.py search "insurance in Personal Bin"
+  python unified_document_manager.py search "2024 tesla in work bin"
+  python unified_document_manager.py search --category vehicle_registration
+
+📊 ANALYZE & STATS  
+  python unified_document_manager.py analyze-folders
+  python unified_document_manager.py stats
+  python folder_structure_importer.py --stats
+
+🔁 REPROCESS LOW-CONFIDENCE DOCS
+  # Preview (no changes)
+  python3 reprocess_low_confidence.py --dry-run --limit 50
+  # Re-run with Gemini, update existing rows
+  python3 reprocess_low_confidence.py --limit 50 --llm gemini
+  # Target different threshold
+  python3 reprocess_low_confidence.py --threshold 0.05 --limit 200
+
+
+💡 STANDALONE TOOLS
+  python document_processor.py file.pdf
+  python search_engine.py "search query"
+  python folder_analyzer.py
+  python folder_structure_importer.py /path
+  python document_monitor.py --once    # NEW!
+
+🌐 WEB INTERFACE
+  Supabase Studio: http://127.0.0.1:54423
+
+📂 CONTEXT BINS (Your Organizational Structure)
+  • Personal Bin 👤         • Work Bin 💼           • Family Bin 👨‍👩‍👧‍👦
+  • Finances Bin 💰         • Legal Bin ⚖️           • Projects Bin 📁
+  • NetV                    • LEOPard              • USAA Visa
+
+📋 HIERARCHICAL CATEGORIES
+  Financial                 Vehicles                Medical
+  ├─ Tax Documents         ├─ Registration         ├─ Records
+  ├─ Invoices             ├─ Insurance            ├─ Insurance
+  ├─ Receipts             └─ Maintenance          └─ Prescriptions
+  └─ Bank Statements
+
+🎯 SEARCH EXAMPLES
+  ✓ "find my 2024 tesla registration"
+  ✓ "show me tax documents from 2023 in personal bin"
+  ✓ "insurance policy for my car"
+  ✓ "find vehicle docs in personal bin"
+  ✗ "doc" (too vague)
+
+🔧 TROUBLESHOOTING
+  supabase start                       # Start database
+  supabase db reset                    # Apply migrations
+  source venv/bin/activate             # Activate environment
+  pip install -r requirements.txt      # Install deps
+  launchctl list | grep monitor        # Check if monitor running
+  tail -f ~/.document_monitor.log      # View monitor logs
+
+📁 KEY FILES
+  unified_document_manager.py          # Main entry point
+  document_processor.py                # PDF processing with bin detection
+  search_engine.py                     # Natural language search with bins
+  folder_analyzer.py                   # Organization analysis
+  folder_structure_importer.py         # Import existing folders
+  document_monitor.py                  # Auto-monitor (NEW!)
+
+📖 FULL DOCUMENTATION
+  README.md                            # Overview & features
+  USAGE_GUIDE.md                       # Detailed usage guide
+  IMPLEMENTATION_SUMMARY.md            # Context bins implementation
+  MONITOR_GUIDE.md                     # Automatic monitoring setup (NEW!)
+  supabase/migrations/                 # Database schema
+
+🎯 TYPICAL WORKFLOW
+  1. ./install_monitor.sh              # One-time: Install auto-monitor
+  2. supabase db reset                 # One-time: Apply migrations
+  3. python folder_structure_importer.py ~/iCloud --dry-run
+  4. python folder_structure_importer.py ~/iCloud
+  5. [Auto-monitor runs on login and finds new PDFs automatically]
+  6. python unified_document_manager.py search "find X in Y bin"
+
+🔔 MONITORING FEATURES
+  • Runs automatically on login
+  • Checks every 5 minutes
+  • Sends macOS notifications
+  • "No new files" = silent notification
+  • New files = processes + generates report
+  • Reports saved to ~/Documents/pdf_report_*.txt
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  Built with: Python • Supabase • Groq AI • PyPDF2                  │
+│  NEW: Context Bins • Hierarchical Categories • Auto-Monitor         │
+└─────────────────────────────────────────────────────────────────────┘
+
+

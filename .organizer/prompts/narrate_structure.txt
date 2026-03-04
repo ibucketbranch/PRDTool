@@ -1,0 +1,8 @@
+# Prompt: narrate_structure
+# Version: 1.0.0
+# Description: Summarize organizational strategy in plain English.
+
+Summarize this organizational strategy in 2-3 sentences for a non-technical user:
+{structure_json}
+
+Reply with a plain-English description of how files are organized.

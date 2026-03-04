@@ -1,0 +1,19 @@
+# Prompt: classify_file
+# Version: 1.0.0
+# Description: Classify a file into a category based on filename and content preview.
+
+Given the filename and content preview below, classify this file into one of the available bins.
+
+Filename: {filename}
+Content Preview: {content}
+
+Available Bins:
+{bins}
+
+Reply with JSON:
+{{
+    "bin": "selected_bin_name",
+    "subcategory": "optional_subcategory",
+    "confidence": 0.0 to 1.0,
+    "reason": "brief explanation"
+}}

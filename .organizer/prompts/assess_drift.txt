@@ -1,0 +1,15 @@
+# Prompt: assess_drift
+# Version: 1.0.0
+# Description: Determine if a file was moved intentionally or accidentally.
+
+File '{filename}' was filed at '{original_path}' on {filed_date}.
+It is now at '{current_path}'.
+
+Was this move intentional (user reorganized) or accidental (drag-drop)?
+
+Reply with JSON:
+{{
+    "likely_intentional": true or false,
+    "confidence": 0.0 to 1.0,
+    "reason": "brief explanation"
+}}

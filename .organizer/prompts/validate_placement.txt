@@ -1,0 +1,16 @@
+# Prompt: validate_placement
+# Version: 1.0.0
+# Description: Validate whether a file belongs in its current location.
+
+File '{filename}' is in '{current_path}'.
+Based on its name and content preview, does it belong in '{current_bin}' or should it be in '{expected_bin}'?
+
+Content Preview: {content}
+
+Reply with JSON:
+{{
+    "belongs_here": true or false,
+    "correct_bin": "bin_name",
+    "confidence": 0.0 to 1.0,
+    "reason": "brief explanation"
+}}

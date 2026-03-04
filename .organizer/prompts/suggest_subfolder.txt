@@ -1,0 +1,14 @@
+# Prompt: suggest_subfolder
+# Version: 1.0.0
+# Description: Suggest appropriate subfolder structure for a file.
+
+What subfolder structure should '{filename}' have inside '{target_bin}'?
+Preserve year/agency hierarchy when present.
+
+Content Preview: {content}
+
+Reply with JSON:
+{{
+    "suggested_subpath": "Year/Agency/filename or just filename",
+    "reason": "brief explanation"
+}}

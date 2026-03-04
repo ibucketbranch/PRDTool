@@ -1,0 +1,19 @@
+# Prompt: extract_metadata
+# Version: 1.0.0
+# Description: Extract structured metadata from file content.
+
+Extract structured metadata from this file:
+
+Filename: {filename}
+Content: {content}
+
+Reply with JSON:
+{{
+    "document_type": "type of document",
+    "date_references": ["dates found"],
+    "people": ["names mentioned"],
+    "organizations": ["orgs mentioned"],
+    "key_topics": ["main topics"],
+    "summary": "1-2 sentence summary",
+    "suggested_tags": ["tag1", "tag2"]
+}}

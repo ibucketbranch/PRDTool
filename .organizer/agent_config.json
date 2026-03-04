@@ -1,0 +1,22 @@
+{
+  "analyze_missing": false,
+  "auto_execute": true,
+  "base_path": "/Users/michaelvalderrama/Library/Mobile Documents/com~apple~CloudDocs",
+  "content_aware": true,
+  "db_path": "",
+  "interval_seconds": 3600,
+  "logs_dir": ".organizer/agent/logs",
+  "max_actions_per_cycle": 100,
+  "max_depth": 4,
+  "min_auto_confidence": 0.95,
+  "min_content_similarity": 0.6,
+  "plans_dir": ".organizer/agent/plans",
+  "queue_dir": ".organizer/agent/queue",
+  "state_file": ".organizer/agent/state.json",
+  "threshold": 0.8,
+  "canonical_registry_file": "/Users/michaelvalderrama/Library/Mobile Documents/com~apple~CloudDocs/.organizer/canonical_registry.json",
+  "root_taxonomy_file": "/Users/michaelvalderrama/Library/Mobile Documents/com~apple~CloudDocs/.organizer/ROOT_TAXONOMY.json",
+  "inbox_enabled": true,
+  "inbox_folder_name": "In-Box",
+  "inbox_min_confidence": 0.85
+}

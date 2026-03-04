@@ -1,0 +1,35 @@
+# ThePDFConversation / FileRoomba
+.env
+*.pyc
+__pycache__/
+venv/
+.venv/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+
+# Runtime data
+ocr_raw_text.txt
+ocr_progress.json
+conversation_data.json
+analysis_results.json
+processing_log_*.txt
+results/
+*.log
+.python-version
+
+# Dashboard
+dashboard/node_modules/
+dashboard/.next/
+dashboard/tsconfig.tsbuildinfo
+
+# Agent runtime state (large, regenerated)
+.organizer/agent/
+.organizer/consolidation_plan.json
+.organizer/documents_cleanup_plan.json
+.organizer/icloud_documents_cleanup_plan.json
+iCloud_consolidation_plan.json
+
+# Supabase local
+.supabase/
+supabase/.temp/

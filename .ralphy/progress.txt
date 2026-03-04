@@ -1,0 +1,2230 @@
+# Ralphy Progress Log
+
+## 2026-01-20
+- Created demo/hello.txt with the text "Hello from Ralphy!"
+- Task completed successfully
+- Created demo/greet.py Python script that prints a greeting with current date and time
+- Task completed successfully
+- Created demo/README.md explaining what the demo files do
+- Task completed successfully
+- Created organizer/fuzzy_matcher.py with functions to compare folder name similarity
+  - Implemented normalize_folder_name() - lowercase, remove underscores/numbers, singularize
+  - Implemented are_similar_folders(name1, name2, threshold=0.8) using difflib.SequenceMatcher
+  - Implemented get_similarity_score() helper function
+  - Added _singularize() helper for basic plural-to-singular conversion
+- Created tests/test_fuzzy_matcher.py with 32 unit tests covering PRD edge cases
+- All tests pass, linting passes
+- Task completed successfully
+- Created organizer/canonical_registry.py with CanonicalRegistry class (Phase 2)
+  - Implemented FolderEntry dataclass for folder metadata
+  - Implemented register_folder() - registers folders, detects similar existing folders
+  - Implemented get_canonical_folder() - returns existing similar folder or None
+  - Implemented get_or_create() - main entry point, returns canonical path
+  - Implemented list_folders() and clear() utility methods
+  - Storage persists to JSON file (.organizer/canonical_folders.json)
+- Created tests/test_canonical_registry.py with 25 unit tests
+- All 57 tests pass, linting passes
+- Task completed successfully
+- Created organizer/category_mapper.py with category mapping module (Phase 3)
+  - Defined CONSOLIDATION_CATEGORIES dict with employment, finances, legal, health, identity, education
+  - Each category has: patterns (keywords), canonical_folder, parent_folder
+  - Implemented get_category_for_folder_name() - determines category from folder name
+  - Implemented get_canonical_folder_for_category() - returns canonical folder for category
+  - Implemented get_parent_folder_for_category() - returns parent folder for category
+  - Implemented suggest_canonical_path() - suggests path using registry lookup + category patterns
+  - Implemented map_to_canonical_category() - maps folder name to full category info
+  - Implemented list_all_categories() - lists all defined categories
+- Created tests/test_category_mapper.py with 44 unit tests covering all functions
+- Updated organizer/__init__.py to export new module functions
+- All 101 tests pass, linting passes
+- Task completed successfully
+- Created organizer/consolidation_planner.py with consolidation planning module (Phase 4)
+  - Implemented FolderInfo dataclass for folder metadata (path, name, file_count, total_size)
+  - Implemented FolderGroup dataclass for grouping similar folders
+  - Implemented ConsolidationPlan dataclass with JSON serialization/deserialization
+  - Implemented ConsolidationPlanner class with:
+    - scan_folders() - recursively scans directory structure with max depth
+    - group_similar_folders() - groups folders using fuzzy matching
+    - create_plan() - creates complete consolidation plan
+    - generate_summary() - outputs human-readable summary
+  - Added convenience functions: scan_folder_structure(), generate_plan_summary(), load_plan_from_file(), save_plan_to_file()
+- Created tests/test_consolidation_planner.py with 41 unit tests
+- Updated organizer/__init__.py to export new module classes and functions
+- All 142 tests pass, linting passes
+- Task completed successfully
+- Created organizer/cli.py with CLI module for Phase 5
+  - Implemented create_parser() with argparse configuration
+  - Added --scan flag to analyze folder structure and show similar folder groups
+  - Added --plan flag to generate consolidation plan without executing
+  - Added --threshold option to set similarity threshold (default 0.8)
+  - Added --output option to save plan to JSON file
+  - Added --path option to specify base directory to scan
+  - Added --max-depth option to limit scan depth
+  - Implemented validate_args() with comprehensive input validation
+  - Implemented run_scan() to execute folder analysis
+  - Implemented run_plan() to generate and optionally save consolidation plans
+  - Created organizer/__main__.py to support `python -m organizer` execution
+- Created tests/test_cli.py with 40 unit tests covering:
+  - Argument parsing for all CLI options
+  - Argument validation (threshold range, path existence, action requirements)
+  - Scan and plan command execution
+  - Output file generation
+  - Integration tests for full workflows
+- Updated organizer/__init__.py to export CLI functions
+- All 182 tests pass, linting passes
+- Task completed successfully
+- Added --execute flag to CLI for Phase 6 (Safe Execution with Safety Checks)
+  - Added --execute flag that requires explicit 'yes' confirmation
+  - Added --plan-file argument to specify the plan file to execute
+  - Implemented get_confirmation() for explicit 'yes' confirmation (not just Enter)
+  - Implemented validate_plan_file() to verify plan file exists and is valid JSON
+  - Implemented display_execution_summary() to show what will happen before confirmation
+  - Implemented run_execute() with safety checks:
+    - Verifies plan file exists and is valid JSON
+    - Shows summary of what will happen (folders, files to move)
+    - Requires explicit 'yes' confirmation (not just Enter)
+    - Aborts gracefully if user declines
+  - Updated validate_args() with execute-specific validation
+  - Updated main() to handle --execute command
+  - Updated organizer/__init__.py to export new functions
+- Created 33 new tests in tests/test_cli.py covering:
+  - Argument parsing for --execute and --plan-file
+  - Validation of execute arguments
+  - get_confirmation() function for various inputs
+  - validate_plan_file() for valid/invalid files
+  - display_execution_summary() output
+  - run_execute() with confirmed/declined/empty/invalid plans
+  - Integration tests for execute workflow
+- All 215 tests pass, linting passes
+- Task completed successfully
+- Implemented create_plan_backup() for Phase 6 pre-execution safety checks
+  - Added create_plan_backup() function to create timestamped backup of consolidation plan
+  - Backup is saved to .organizer/plan_backup_YYYYMMDD_HHMMSS.json before execution
+  - Backup is only created after user confirms with explicit 'yes'
+  - Updated run_execute() to call create_plan_backup() after confirmation
+  - Updated organizer/__init__.py to export create_plan_backup function
+  - Note: validate_plan_file, display_execution_summary, and get_confirmation were already implemented
+- Created 11 new tests in tests/test_cli.py covering:
+  - TestCreatePlanBackup class (8 tests):
+    - Backup file creation
+    - Default directory (.organizer)
+    - Custom backup directory
+    - Directory creation if needed
+    - Timestamp in filename format
+    - Backup content matches original plan
+    - Multiple backups get different names
+    - Empty plan backup
+  - TestRunExecuteWithBackup class (3 tests):
+    - Backup created on user confirmation
+    - No backup on user decline
+    - Backup contains correct plan data
+- All 226 tests pass, linting passes
+- Task completed successfully
+- Created organizer/file_operations.py with atomic file operations for Phase 6
+  - Implemented MoveStatus enum (SUCCESS, FAILED, SKIPPED)
+  - Implemented FileMoveResult dataclass for tracking individual file moves
+  - Implemented FolderMoveResult dataclass for tracking folder content moves
+  - Implemented GroupMoveResult dataclass for tracking folder group consolidations
+  - Implemented ExecutionResult dataclass for tracking full plan execution
+  - Implemented move_file_atomic() - safely moves a single file with collision handling
+  - Implemented _get_unique_path() - handles name collisions by adding numeric suffix
+  - Implemented move_folder_contents() - moves all files from source to target folder
+  - Implemented execute_folder_group() - consolidates all folders in a group to target
+  - Implemented _resolve_target_path() - resolves relative/absolute target paths
+  - Implemented _paths_are_same() - checks if two paths point to same location
+  - Implemented execute_consolidation_plan() - executes full plan with stop-on-error option
+  - Implemented verify_files_at_target() - verifies files exist at target location
+  - All operations support progress callbacks for real-time updates
+  - Stops on first error by default (configurable via stop_on_error parameter)
+  - Reports what was completed before any failure
+- Created tests/test_file_operations.py with 44 unit tests covering:
+  - MoveStatus enum values
+  - FileMoveResult, FolderMoveResult, GroupMoveResult, ExecutionResult dataclasses
+  - move_file_atomic() success, non-existent source, directory source, target creation, collision handling
+  - _get_unique_path() with various collision scenarios
+  - move_folder_contents() success, non-existent source, file source, empty folder, progress callback
+  - execute_folder_group() success, skips target folder, relative paths
+  - _resolve_target_path() with relative and absolute paths
+  - _paths_are_same() with identical, different, and trailing slash paths
+  - execute_consolidation_plan() empty plan, success, progress callback, stop on error, continue on error
+  - verify_files_at_target() success, more/fewer files than expected, non-existent folder
+  - Full integration test for complete consolidation workflow
+- Updated organizer/__init__.py to export new module functions
+- All 270 tests pass, linting passes
+- Task completed successfully
+- Created organizer/execution_logger.py with detailed execution logging (Phase 6)
+  - Implemented RollbackInstruction dataclass for tracking individual file move undo commands
+  - Implemented GroupLogEntry dataclass for logging folder group consolidation details
+  - Implemented ExecutionLog dataclass with full execution summary and rollback support
+  - Implemented create_execution_log() - creates timestamped log file (.organizer/execution_log_YYYYMMDD_HHMMSS.json)
+  - Implemented load_execution_log() - loads existing log files
+  - Implemented get_rollback_script() - extracts shell script to undo moves
+  - Implemented save_rollback_script() - saves executable rollback script to file
+  - Log records: timestamp, source path, target path, file count, status (success/failed)
+  - Rollback instructions include: current_path, original_path, and mv command
+  - Auto-generated rollback script is bash-compatible with set -e for safety
+- Created tests/test_execution_logger.py with 34 unit tests covering:
+  - RollbackInstruction creation, to_dict, from_file_move (success/failed/skipped)
+  - GroupLogEntry creation, to_dict, from_group_result with/without failures
+  - ExecutionLog creation, to_dict structure, rollback script generation
+  - create_execution_log file creation, naming format, directory handling
+  - load_execution_log valid/invalid/nonexistent files
+  - get_rollback_script extraction and error handling
+  - save_rollback_script with default/custom path and executable permissions
+  - Integration tests for full logging workflow and partial failure scenarios
+- Updated organizer/__init__.py to export new module functions
+- All 304 tests pass, linting passes
+- Task completed successfully
+- Created organizer/database_updater.py with database integration for Phase 6
+  - Implemented DocumentUpdate dataclass for tracking individual document updates
+  - Implemented DatabaseUpdateResult dataclass with success flag and summary stats
+  - Implemented get_database_connection() - gets SQLite connection with validation
+  - Implemented update_document_location() - updates DB for single file move:
+    - Finds document by current_path
+    - Marks old location as 'previous' in document_locations
+    - Adds new location entry as 'current'
+    - Updates current_path, canonical_folder, rename_status='done' in documents
+  - Implemented update_database_for_file_move() - updates DB for FileMoveResult
+  - Implemented update_database_for_execution() - updates DB for all moves in ExecutionResult
+  - Implemented update_database_from_execution_result() - convenience function with path
+  - Implemented check_database_schema() - validates required tables and columns exist
+  - Handles untracked files gracefully (not an error, just skipped)
+  - Returns detailed results including which files were not found in DB
+- Created tests/test_database_updater.py with 27 unit tests covering:
+  - DocumentUpdate creation, error handling, to_dict serialization
+  - DatabaseUpdateResult creation, success property, to_dict serialization
+  - get_database_connection() with existing and nonexistent databases
+  - update_document_location() for existing, nonexistent, and multiple updates
+  - update_database_for_file_move() for success, failed, and skipped moves
+  - update_database_for_execution() with empty, multiple moves, mixed results, untracked files
+  - update_database_from_execution_result() convenience function
+  - check_database_schema() for valid/invalid/missing tables and columns
+  - Full integration test for complete consolidation database flow
+- Updated organizer/__init__.py to export new module functions
+- All 331 tests pass, linting passes
+- Task completed successfully
+- Created organizer/progress_reporter.py with progress reporting for Phase 6
+  - Implemented ProgressState dataclass for tracking progress state
+  - Implemented ProgressReporter class with:
+    - start() - prints execution header
+    - start_group() - reports starting a new folder group with progress indicator
+    - report_folder_move() - reports individual folder move status
+    - complete_group() - reports group completion with file counts
+    - report_error() - reports errors during execution
+    - report_status() - reports general status messages
+    - finish() - reports execution completion summary
+    - _format_duration() - formats elapsed time in human-readable format
+  - Progress bar shows "X/Y folder groups completed" and percentage
+  - Real-time status updates during execution showing current operation
+  - Implemented format_progress_bar() utility function
+  - Implemented create_progress_reporter() factory function
+- Updated organizer/cli.py to integrate progress reporting:
+  - Added _execute_with_progress() function to execute plan with progress reporting
+  - Updated run_execute() to use ProgressReporter for real-time status updates
+  - Fixed create_execution_log() call to pass all required arguments
+- Created tests/test_progress_reporter.py with 33 unit tests covering:
+  - ProgressState creation and default values
+  - ProgressReporter initialization, start, start_group, complete_group
+  - report_folder_move success/failure and state updates
+  - report_error, report_status, finish methods
+  - _format_duration for seconds, minutes, hours
+  - format_progress_bar utility function with various inputs
+  - Full integration tests for execution flow
+- Added 7 new tests to tests/test_cli.py (TestRunExecuteWithProgress):
+  - test_execute_shows_progress_header
+  - test_execute_shows_group_progress
+  - test_execute_shows_progress_bar
+  - test_execute_shows_completion_summary
+  - test_execute_creates_execution_log
+  - test_execute_with_multiple_groups
+  - test_execute_success_returns_zero
+- Updated organizer/__init__.py to export progress reporter functions
+- Fixed 2 existing tests that needed actual folder/file structure
+- All 371 tests pass, linting passes
+- Task completed successfully
+- Created organizer/post_verification.py with post-execution verification for Phase 6
+  - Implemented FileVerificationResult dataclass for single file accessibility verification
+  - Implemented VerificationResult dataclass for tracking all file verifications
+  - Implemented ExecutionSummaryReport dataclass for complete execution summary
+  - Implemented verify_file_accessible() - checks if a file exists and is accessible
+  - Implemented verify_files_at_new_locations() - verifies all moved files at target locations
+  - Implemented check_no_files_lost() - checks that no files are missing from both source and target
+  - Implemented generate_execution_summary() - creates complete summary with verification
+  - Implemented save_summary_report() - saves summary to JSON file
+  - Implemented load_summary_report() - loads summary from JSON file
+  - Implemented format_verification_summary() - human-readable verification output
+  - Implemented format_summary_report() - human-readable final summary output
+- Updated organizer/cli.py to integrate post-execution verification:
+  - Added import for post_verification module
+  - Updated run_execute() to run verification after execution
+  - Added verification summary and lost file checking
+  - Added summary report generation and saving
+  - Updated success condition to include verification status
+- Created tests/test_post_verification.py with 35 unit tests covering:
+  - FileVerificationResult creation, error handling, to_dict serialization
+  - VerificationResult creation, status checks, success property
+  - ExecutionSummaryReport creation, overall_success property
+  - verify_file_accessible() for existing, nonexistent files
+  - verify_files_at_new_locations() with all files present, missing files, empty results
+  - check_no_files_lost() with files at target, files lost
+  - generate_execution_summary() for success, failure, without verification
+  - save_summary_report() and load_summary_report() round-trip
+  - format_verification_summary() and format_summary_report() output
+  - Full integration tests for complete verification workflow
+- Updated organizer/__init__.py to export new module functions
+- All 406 tests pass, linting passes
+- Task completed successfully
+
+## 2026-01-21
+- Created organizer/content_analyzer.py with content-aware folder analysis (Phase 1)
+  - Implemented DocumentInfo dataclass for storing document metadata from database
+  - Implemented FolderAnalysis dataclass for comprehensive folder content analysis
+  - Implemented ConsolidationDecision dataclass with reasoning for consolidation decisions
+  - Implemented get_folder_metadata() - queries database for documents in a folder
+  - Implemented analyze_folder_content() - primary method to analyze folder content:
+    - Extracts AI categories from ai_category field
+    - Collects date ranges from key_dates[] and metadata dates
+    - Extracts entities (people, organizations) from entities JSONB
+    - Retrieves original paths from document_locations table
+    - Calculates year clusters (e.g., "2002-2003", "2024-2025")
+    - Identifies context bins from folder_hierarchy
+  - Implemented should_consolidate_folders() - returns True/False with reasoning:
+    - Rule 1: Same AI category → Can consolidate
+    - Rule 2: Same date range → Can consolidate
+    - Rule 3: Same context bin → Can consolidate
+    - Rule 4: Same entities → Can consolidate
+    - Rule 5: Compatible original paths → Can consolidate
+    - Different timeframes (e.g., 2002 vs 2025) → DO NOT consolidate
+    - Different AI categories → DO NOT consolidate
+  - Implemented helper functions for date parsing, year clustering, context extraction, path compatibility
+  - Implemented convenience functions analyze_folder_content_from_path() and should_consolidate_folders_from_path()
+- Created tests/test_content_analyzer.py with 63 unit tests covering:
+  - DocumentInfo, FolderAnalysis, ConsolidationDecision dataclasses and serialization
+  - JSON/array field parsing helpers
+  - Year extraction from various date formats
+  - Year cluster computation
+  - Context bin extraction from paths
+  - Path compatibility checking (Microsoft vs macOS Desktop detection)
+  - Date range overlap checking
+  - get_folder_metadata() with empty and populated folders
+  - analyze_folder_content() with documents, entities, original paths
+  - should_consolidate_folders() for similar/different categories/timeframes
+  - PRD examples: Resume consolidation, different timeframes, different categories
+  - Full integration tests for complete analysis workflow
+- Updated organizer/__init__.py to export new module functions
+- All 469 tests pass, linting passes
+- Task completed successfully
+- Added DocumentProcessor integration to content_analyzer.py (Phase 1)
+  - Implemented DocumentProcessor protocol defining the expected interface for document processing
+  - Implemented FileInfo dataclass for storing file metadata from disk
+  - Implemented FolderScanResult dataclass for tracking folder scan results
+  - Added SUPPORTED_EXTENSIONS constant with common document file extensions
+  - Implemented is_supported_file() - checks if file has supported extension
+  - Implemented scan_folder_for_files() - scans folder for files with optional filtering
+  - Implemented check_files_in_database() - checks which files are already in database
+  - Implemented scan_folder_with_database() - document-first approach: scan files, check database
+  - Implemented scan_folder_with_database_from_path() - convenience function with db path
+  - Implemented process_unanalyzed_files() - processes files not in database using DocumentProcessor
+  - Implemented analyze_folder_with_processing() - PRIMARY METHOD for content-aware analysis
+  - Implemented analyze_folder_with_processing_from_path() - convenience function with db path
+  - Implemented DefaultDocumentProcessor class - basic implementation for file scanning
+  - Implemented create_document_processor() - factory function for creating processors
+- Created 48 new tests in tests/test_content_analyzer.py covering:
+  - FileInfo, FolderScanResult dataclasses and serialization
+  - is_supported_file() for various file types and custom extensions
+  - scan_folder_for_files() empty/populated folders, filtering, recursive/non-recursive
+  - check_files_in_database() for files in/not in database
+  - scan_folder_with_database() and scan_folder_with_database_from_path()
+  - DefaultDocumentProcessor class methods (find_files, is_processable, process_file)
+  - process_unanalyzed_files() with progress callback
+  - analyze_folder_with_processing() with and without processor
+  - SUPPORTED_EXTENSIONS constant coverage
+- Updated organizer/__init__.py to export new classes and functions
+- All 517 tests pass, linting passes
+- Task completed successfully
+- Updated organizer/consolidation_planner.py to integrate content_analyzer for Phase 2
+  - Added content-aware fields to FolderGroup dataclass:
+    - should_consolidate: Final decision based on content analysis
+    - consolidation_reasoning: List of reasons for the decision
+    - ai_categories: Set of AI categories found in the folders
+    - date_ranges: Year clusters for each folder
+    - content_analysis_done: Whether content analysis was performed
+    - confidence: Confidence in consolidation decision
+  - Added content-aware fields to ConsolidationPlan dataclass:
+    - content_aware: Whether content-aware mode is enabled
+    - db_path: Path to SQLite database for content analysis
+    - groups_to_consolidate property: Returns groups that should be consolidated
+    - groups_to_skip property: Returns groups that should NOT be consolidated
+  - Updated ConsolidationPlanner class:
+    - Added db_path and content_aware parameters to __init__
+    - Added _get_db_connection() for database connection management
+    - Added _close_db_connection() for cleanup
+    - Added _analyze_group_content() to analyze folder content using database
+    - Added group_similar_folders_content_aware() for content-aware grouping
+    - Updated create_plan() to use content-aware grouping when enabled
+    - Updated generate_summary() for content-aware output with reasoning
+  - Updated scan_folder_structure() convenience function with content-aware params
+  - Fixed circular import issue between consolidation_planner and file_operations
+    by using TYPE_CHECKING import guard in file_operations.py
+- Added 24 new tests in tests/test_consolidation_planner.py covering:
+  - Content-aware FolderGroup fields and serialization
+  - Content-aware ConsolidationPlan fields and properties
+  - ConsolidationPlanner with content-aware parameters
+  - Content-aware planning with actual database integration
+  - Different categories detection (should not consolidate)
+  - Different timeframes detection (should not consolidate)
+  - Content-aware summary generation
+  - Content-aware plan JSON roundtrip
+- All 541 tests pass, linting passes
+- Task completed successfully
+- Enhanced consolidation_planner.py with complete Phase 2 decision logic
+  - Updated _analyze_group_content() to gather ALL context from database:
+    1. AI categories from ai_category field
+    2. Date ranges from key_dates[] and metadata dates
+    3. Entities (people, organizations) from entities JSONB
+    4. Original paths from document_locations table
+    5. Context bins from folder_hierarchy array
+  - Applied ALL 5 decision rules with clear logging:
+    - Rule 1: Same AI category check
+    - Rule 2: Same date range check
+    - Rule 3: Same context bin check
+    - Rule 4: Same entities check
+    - Rule 5: Compatible original paths check
+  - Added _determine_canonical_target() method for intelligent target selection:
+    - Uses category mappings if available
+    - Uses AI categories from database
+    - Falls back to canonical registry
+    - Final fallback to first folder name
+  - Added comprehensive reasoning to plan output showing all decision factors
+  - Integrated CanonicalRegistry for target folder determination
+- Created 10 new tests in tests/test_consolidation_planner.py (TestDecisionLogicPhase2):
+  - test_decision_logic_gathers_all_context
+  - test_decision_logic_applies_all_five_rules
+  - test_decision_logic_determines_target_from_ai_category
+  - test_decision_logic_clear_reasoning_for_no_consolidation
+  - test_decision_logic_with_matching_entities
+  - test_decision_logic_with_no_database_data
+  - test_decision_logic_prd_example_different_timeframes
+  - test_decision_logic_prd_example_same_resume_content
+- All 549 tests pass, linting passes
+- Task completed successfully
+- Marked Phase 3: Integration with Existing Document Processor as complete
+  - Verified DocumentProcessor Protocol is already defined in content_analyzer.py
+  - Verified database integration via SQLite (database_updater.py)
+  - Verified get_folder_metadata() and analyze_folder_content() query database for existing analysis
+  - Verified process_unanalyzed_files() processes files not in database
+  - Verified integration with category_mapper.py for categorization
+  - Verified integration with content_analyzer.py for folder analysis
+  - All 549 tests pass, linting passes
+  - Updated PRD.md to mark all Phase 3 tasks as complete
+- Task completed successfully
+- Created organizer/smart_rules.py with Smart Rules Engine for Phase 4
+  - Implemented RuleResult dataclass for tracking individual rule results
+  - Implemented SmartRulesResult dataclass for combined rule results
+  - Implemented CODE_PROJECT_INDICATORS constant with:
+    - files: package.json, Cargo.toml, go.mod, pyproject.toml, etc.
+    - folders: .git, node_modules, __pycache__, .venv, etc.
+    - extensions: .py, .js, .ts, .rs, .go, etc.
+  - Implemented VA_PATTERNS constant with:
+    - folder_names: patterns for VA, veteran, VBA, VHA, disability claim, DD-214, etc.
+    - categories: VA Claims, Veterans Affairs, Military Records, etc.
+  - Implemented MY_DOCUMENT_INDICATORS patterns: my_, personal_, own_
+  - Implemented OTHER_DOCUMENT_INDICATORS patterns: other_, their_, client_, received_, etc.
+  - Implemented is_code_project() - detects code projects (skip entirely)
+  - Implemented is_va_document_folder() - detects VA documents (exclude from consolidation)
+  - Implemented detect_document_ownership() - detects MY vs OTHER documents
+  - Implemented should_consolidate_by_ownership() - checks if folders can consolidate based on ownership
+  - Implemented apply_smart_rules() - applies all rules to a single folder
+  - Implemented apply_smart_rules_to_group() - applies rules to a folder group
+- Created tests/test_smart_rules.py with 52 unit tests covering:
+  - RuleResult creation, reasoning, to_dict serialization
+  - SmartRulesResult creation, to_dict serialization
+  - Code project detection (Python, Node.js, Git, Rust, Go projects)
+  - Non-code project detection (empty folders, document folders)
+  - VA document folder detection (by name and database category)
+  - Document ownership detection (MY, OTHER, unknown)
+  - Ownership consolidation check (same ownership, different ownership)
+  - Combined smart rules application
+  - Group smart rules application
+  - Integration tests for full workflows
+- Updated organizer/__init__.py to export new module functions
+- All 601 tests pass, linting passes
+- Task completed successfully
+- Added Path Context Rules to smart_rules.py (Phase 4 continuation)
+  - Implemented PATH_CONTEXT_PATTERNS constant with patterns for:
+    - microsoft: onedrive, windows, office365, sharepoint, azure
+    - macos: icloud, apple, darwin
+    - google: google drive, gdrive, google docs
+    - dropbox: dropbox
+    - work: work, office, job, company, corporate, business
+    - personal: personal, home, private
+    - archive: archive, backup, old, legacy
+  - Implemented DESKTOP_CONTEXT_PATTERNS constant with:
+    - microsoft_desktop: patterns for Microsoft/OneDrive/Windows Desktop
+    - macos_desktop: patterns for macOS/iCloud/Apple Desktop
+  - Added path_contexts field to SmartRulesResult dataclass
+  - Implemented detect_path_context() - detects path contexts (Microsoft, macOS, work, personal, etc.)
+  - Implemented are_path_contexts_compatible() - checks if two folders have compatible path contexts
+    - Blocks Microsoft Desktop + macOS Desktop consolidation
+    - Blocks different system sources (OneDrive vs iCloud)
+    - Blocks work vs personal folder consolidation
+  - Updated apply_smart_rules() to include path context detection (Rule 4)
+  - Updated apply_smart_rules_to_group() to check for path context conflicts
+  - Updated organizer/__init__.py to export new functions and constants
+- Added 32 new tests in tests/test_smart_rules.py covering:
+  - TestDetectPathContext: Microsoft, macOS, Google, Dropbox, work, personal context detection
+  - TestArePathContextsCompatible: Desktop conflicts, system conflicts, work/personal conflicts
+  - TestSmartRulesResultPathContext: path_contexts field and to_dict serialization
+  - TestApplySmartRulesWithPathContext: path context detection in apply_smart_rules
+  - TestApplySmartRulesToGroupWithPathContext: path context blocking in groups
+  - TestPathContextConstants: constant definitions verification
+  - TestPathContextIntegration: PRD examples (Desktop different sources)
+- Updated PRD.md to mark path context rules task as complete
+- All 633 tests pass, linting passes
+- Task completed successfully
+- Implemented Content Similarity Threshold (configurable) for Phase 4
+  - Updated organizer/content_analyzer.py:
+    - Added similarity_threshold parameter to should_consolidate_folders() (default 0.6)
+    - Added similarity_threshold parameter to should_consolidate_folders_from_path()
+    - Threshold controls minimum confidence required for consolidation (0.0-1.0)
+    - Updated reasoning message to show both confidence and threshold when blocked
+  - Updated organizer/consolidation_planner.py:
+    - Added content_similarity_threshold parameter to ConsolidationPlanner.__init__()
+    - Added content_similarity_threshold parameter to scan_folder_structure()
+    - Planner passes threshold to should_consolidate_folders() during content analysis
+  - Added 15 new tests:
+    - TestSimilarityThreshold class in test_content_analyzer.py (8 tests):
+      - test_default_threshold_is_60_percent
+      - test_high_threshold_blocks_consolidation
+      - test_low_threshold_allows_more_consolidations
+      - test_threshold_zero_always_consolidates
+      - test_threshold_one_requires_perfect_match
+      - test_threshold_message_in_reasoning
+      - test_different_categories_still_blocked (threshold doesn't override)
+      - test_different_timeframes_still_blocked (threshold doesn't override)
+    - test_consolidate_from_path_with_threshold in TestShouldConsolidateFoldersFromPath
+    - TestContentSimilarityThreshold class in test_consolidation_planner.py (6 tests):
+      - test_planner_default_threshold
+      - test_planner_custom_threshold
+      - test_planner_threshold_zero
+      - test_planner_threshold_one
+      - test_scan_folder_structure_with_threshold
+      - test_planner_with_threshold_and_database
+- Updated PRD.md to mark content similarity threshold task as complete
+- All 648 tests pass, linting passes
+- Task completed successfully (Phase 4 now fully complete!)
+- Added --content-aware CLI flag for Phase 5 (Enhanced CLI)
+  - Added --content-aware flag with BooleanOptionalAction (default: True)
+  - Added --db-path argument to specify database path for content analysis
+  - Updated run_scan() and run_plan() to pass content_aware and db_path to ConsolidationPlanner
+  - Updated plan output to show Content-aware status
+  - Added validation for --db-path (requires --content-aware, must exist, must be file)
+  - Updated organizer/cli.py with new arguments and validation logic
+- Added 20 new tests in tests/test_cli.py covering:
+  - TestContentAwareArgument class (9 tests):
+    - test_content_aware_defaults_true
+    - test_content_aware_explicit_true
+    - test_no_content_aware
+    - test_db_path_argument
+    - test_db_path_defaults_none
+    - test_db_path_with_content_aware
+    - test_db_path_without_content_aware_fails
+    - test_db_path_nonexistent_fails
+    - test_db_path_is_directory_fails
+  - TestRunScanContentAware class (2 tests):
+    - test_scan_with_content_aware_default
+    - test_scan_with_content_aware_disabled
+  - TestRunPlanContentAware class (4 tests):
+    - test_plan_with_content_aware_default
+    - test_plan_with_content_aware_disabled
+    - test_plan_output_includes_content_aware_field
+    - test_plan_output_content_aware_false
+  - TestMainContentAware class (5 tests):
+    - test_main_with_content_aware
+    - test_main_with_no_content_aware
+    - test_main_plan_with_content_aware
+    - test_main_plan_with_no_content_aware
+    - test_main_with_db_path_and_no_content_aware_fails
+- Updated existing tests to expect "CONTENT-AWARE FOLDER ANALYSIS" header (default)
+- Updated PRD.md to mark --content-aware flag task as complete
+- All 668 tests pass, linting passes
+- Task completed successfully
+- Added --analyze-missing CLI flag for Phase 5 (Enhanced CLI)
+  - Added --analyze-missing argument to CLI parser (default: False)
+  - Flag analyzes files not in database during content-aware scanning
+  - Requires both --content-aware and --db-path arguments
+  - Updated validate_args() with validation for --analyze-missing requirements
+  - Updated run_scan() and run_plan() to pass analyze_missing to ConsolidationPlanner
+  - Updated organizer/consolidation_planner.py:
+    - Added analyze_missing parameter to ConsolidationPlanner.__init__()
+    - Added analyze_missing parameter to scan_folder_structure() convenience function
+    - Updated _analyze_group_content() to use analyze_folder_with_processing()
+      with a DocumentProcessor when analyze_missing is enabled
+    - Imports create_document_processor and analyze_folder_with_processing from content_analyzer
+- Added 16 new tests:
+  - TestAnalyzeMissingArgument class in tests/test_cli.py (5 tests):
+    - test_analyze_missing_defaults_false
+    - test_analyze_missing_explicit_true
+    - test_analyze_missing_without_content_aware_fails
+    - test_analyze_missing_without_db_path_fails
+    - test_analyze_missing_with_content_aware_and_db_path_passes
+  - TestRunScanAnalyzeMissing class (1 test):
+    - test_scan_with_analyze_missing
+  - TestRunPlanAnalyzeMissing class (1 test):
+    - test_plan_with_analyze_missing
+  - TestMainAnalyzeMissing class (3 tests):
+    - test_main_with_analyze_missing
+    - test_main_with_analyze_missing_and_no_content_aware_fails
+    - test_main_with_analyze_missing_and_no_db_path_fails
+  - TestAnalyzeMissing class in tests/test_consolidation_planner.py (6 tests):
+    - test_planner_default_analyze_missing_false
+    - test_planner_analyze_missing_true
+    - test_planner_analyze_missing_with_content_aware
+    - test_scan_folder_structure_with_analyze_missing
+    - test_planner_creates_plan_with_analyze_missing
+    - test_analyze_missing_shows_reasoning_about_analysis
+- Updated PRD.md to mark --analyze-missing flag task as complete
+- All 684 tests pass, linting passes
+- Task completed successfully
+- Added --min-content-similarity CLI flag for Phase 5 (Enhanced CLI)
+  - Added --min-content-similarity argument to CLI parser (default: 0.6)
+  - Flag sets minimum content similarity threshold for consolidation (0.0-1.0)
+  - Requires --content-aware (not --no-content-aware) when using non-default value
+  - Updated validate_args() with validation for --min-content-similarity:
+    - Must be between 0.0 and 1.0
+    - Cannot be used with --no-content-aware (unless using default 0.6)
+  - Updated run_scan() to pass content_similarity_threshold to ConsolidationPlanner
+  - Updated run_plan() to pass content_similarity_threshold to ConsolidationPlanner
+  - Updated plan output to show content similarity threshold when content-aware is enabled
+  - Updated organizer/cli.py with new argument and validation logic
+- Added 16 new tests in tests/test_cli.py covering:
+  - TestMinContentSimilarityArgument class (8 tests):
+    - test_min_content_similarity_defaults_to_0_6
+    - test_min_content_similarity_custom_value
+    - test_min_content_similarity_at_boundaries
+    - test_min_content_similarity_too_low_fails
+    - test_min_content_similarity_too_high_fails
+    - test_min_content_similarity_without_content_aware_fails
+    - test_min_content_similarity_with_content_aware_passes
+    - test_min_content_similarity_default_with_no_content_aware_passes
+  - TestRunScanMinContentSimilarity class (1 test):
+    - test_scan_with_min_content_similarity
+  - TestRunPlanMinContentSimilarity class (3 tests):
+    - test_plan_with_min_content_similarity
+    - test_plan_with_default_min_content_similarity
+    - test_plan_without_content_aware_no_similarity_output
+  - TestMainMinContentSimilarity class (4 tests):
+    - test_main_with_min_content_similarity
+    - test_main_with_invalid_min_content_similarity
+    - test_main_plan_with_min_content_similarity
+    - test_main_with_min_content_similarity_and_no_content_aware_fails
+- Updated PRD.md to mark --min-content-similarity flag task as complete
+- All 700 tests pass, linting passes
+- Task completed successfully
+- Implemented "Show content analysis in plan output" for Phase 5 (Enhanced CLI)
+  - Created FolderContentSummary dataclass to store per-folder content analysis details:
+    - folder_path: Path to the folder
+    - ai_categories: Set of AI categories found in folder documents
+    - context_bins: Set of context bins from folder hierarchy
+    - year_clusters: List of year cluster strings (e.g., "2024-2025")
+    - document_count: Number of documents analyzed
+  - Added folder_content_summaries field to FolderGroup dataclass:
+    - Dict mapping folder_path -> FolderContentSummary
+    - Populated during _analyze_group_content() method
+  - Updated FolderGroup.to_dict() and from_dict() for serialization
+  - Updated generate_summary() to display per-folder content analysis:
+    - Shows AI category, Context bin, and Dates per folder line
+    - Format matches PRD example: (12 files, AI: "Employment/Resumes", Context: "Personal Bin", Dates: "2024-2025")
+    - Falls back to group-level info if per-folder summary not available
+  - Updated organizer/__init__.py to export FolderContentSummary
+- Created 24 new tests in tests/test_consolidation_planner.py covering:
+  - TestFolderContentSummary class (8 tests):
+    - test_creation, test_creation_with_defaults, test_to_dict
+    - test_from_dict, test_from_dict_missing_fields, test_roundtrip
+    - test_post_init_converts_lists_to_sets
+  - TestFolderGroupWithContentSummaries class (4 tests):
+    - test_folder_group_has_content_summaries
+    - test_folder_group_to_dict_includes_summaries
+    - test_folder_group_from_dict_restores_summaries
+    - test_folder_group_roundtrip_with_summaries
+  - TestContentAnalysisInPlanOutput class (8 tests):
+    - test_summary_shows_per_folder_ai_category
+    - test_summary_shows_per_folder_context_bin
+    - test_summary_shows_per_folder_dates
+    - test_summary_shows_all_content_info_combined
+    - test_summary_shows_different_content_per_folder
+    - test_summary_without_content_aware_no_content_info
+    - test_summary_fallback_for_missing_summaries
+  - TestContentAnalysisPopulatedInAnalyzeGroup class (1 test):
+    - test_analyze_group_populates_content_summaries
+- Updated PRD.md to mark "Show content analysis in plan output" task as complete
+- All 719 tests pass, linting passes (1 pre-existing E501 warning in consolidation_planner.py)
+- Task completed successfully
+- Implemented "Show reasoning for each consolidation decision" for Phase 5 (Enhanced CLI)
+  - Added decision_summary field to FolderGroup dataclass for concise reason display
+  - Updated _analyze_group_content() to generate decision_summary based on:
+    - Which rules passed/failed (AI category, date range, context bin, entities, paths)
+    - Specific blocking reasons when consolidation is not recommended
+  - Updated generate_summary() to display decision_summary in plan output:
+    - "CAN CONSOLIDATE: Same AI category, same context bin" instead of just confidence %
+    - "DO NOT CONSOLIDATE: Different timeframes (Tax2002 vs Tax2025)" with specific reason
+  - Falls back to confidence percentage when decision_summary is empty (backward compatibility)
+  - Updated to_dict() and from_dict() methods for JSON serialization
+- Created 15 new tests in tests/test_consolidation_planner.py covering:
+  - TestDecisionSummary class (4 tests):
+    - test_folder_group_has_decision_summary_field
+    - test_folder_group_decision_summary_in_to_dict
+    - test_folder_group_decision_summary_from_dict
+    - test_folder_group_decision_summary_roundtrip
+  - TestDecisionSummaryInSummaryOutput class (6 tests):
+    - test_summary_shows_decision_summary_for_can_consolidate
+    - test_summary_shows_decision_summary_for_no_consolidate
+    - test_summary_shows_decision_summary_for_different_categories
+    - test_summary_shows_decision_summary_for_different_paths
+    - test_summary_fallback_to_confidence_when_no_decision_summary
+    - test_summary_fallback_for_no_consolidate_no_summary
+  - TestDecisionSummaryIntegration class (3 tests):
+    - test_decision_summary_generated_for_matching_content
+    - test_decision_summary_generated_for_different_timeframes
+    - test_decision_summary_prd_example_resume_consolidation
+- Updated PRD.md to mark "Show reasoning for each consolidation decision" task as complete
+- All 732 tests pass, linting passes
+- Task completed successfully (Phase 5: Enhanced CLI is now fully complete!)
+- Implemented "Pre-execution: Show content analysis summary" for Phase 6 (Safety & Verification)
+  - Created display_content_analysis_summary() function in organizer/cli.py:
+    - Shows CONTENT ANALYSIS SUMMARY section before execution for content-aware plans
+    - Displays groups to consolidate with AI categories, date ranges, decision summary, and target folder
+    - Displays groups to skip with AI categories, date ranges, and decision summary
+    - Shows summary statistics: groups to consolidate/skip, files to move/stay in place
+  - Created _display_group_content_summary() helper function to display per-group details
+  - Updated run_execute() to call display_content_analysis_summary() before display_execution_summary()
+  - Updated organizer/__init__.py to export display_content_analysis_summary function
+- Created 14 new tests in tests/test_cli.py covering:
+  - TestDisplayContentAnalysisSummary class (10 tests):
+    - test_no_output_for_non_content_aware_plan
+    - test_empty_groups_message
+    - test_shows_groups_to_consolidate
+    - test_shows_groups_to_skip
+    - test_shows_ai_categories
+    - test_shows_date_ranges
+    - test_shows_decision_summary
+    - test_shows_target_folder_for_consolidate_groups
+    - test_no_target_folder_for_skip_groups
+    - test_shows_summary_statistics
+  - TestRunExecuteWithContentAnalysisSummary class (4 tests):
+    - test_execute_shows_content_analysis_summary
+    - test_execute_no_content_summary_for_non_content_aware
+    - test_execute_shows_both_consolidate_and_skip_groups
+    - test_execute_content_summary_before_execution_summary
+- Updated PRD.md to mark "Pre-execution: Show content analysis summary" task as complete
+- All 746 tests pass, linting passes
+- Task completed successfully
+- Implemented "Warn if consolidating folders with different content types" for Phase 6 (Safety & Verification)
+  - Created has_mixed_content_types() function in organizer/cli.py:
+    - Checks if a FolderGroup has more than one AI category
+    - Returns True if group has multiple different content types
+  - Created display_content_type_warning() function in organizer/cli.py:
+    - Displays warning message when mixed content types detected
+    - Lists all different AI categories found in the group
+    - Shows "Consider reviewing these folders before consolidation" message
+  - Updated _display_group_content_summary() to accept show_warning parameter:
+    - Calls display_content_type_warning() for groups being consolidated
+    - Warning is NOT shown for groups being skipped (they're not being consolidated)
+  - Updated display_content_analysis_summary() to:
+    - Count groups with mixed content types in the consolidate list
+    - Show summary warning "X group(s) contain mixed content types!" at the end
+    - Include "Review the warnings above before proceeding" message
+  - Updated organizer/__init__.py to export new functions:
+    - has_mixed_content_types
+    - display_content_type_warning
+- Created 16 new tests in tests/test_cli.py covering:
+  - TestHasMixedContentTypes class (4 tests):
+    - test_single_category_returns_false
+    - test_multiple_categories_returns_true
+    - test_empty_categories_returns_false
+    - test_three_categories_returns_true
+  - TestDisplayContentTypeWarning class (5 tests):
+    - test_no_warning_for_single_category
+    - test_warning_displayed_for_mixed_categories
+    - test_warning_lists_all_categories
+    - test_warning_includes_review_message
+    - test_no_warning_for_empty_categories
+  - TestContentAnalysisSummaryWithWarnings class (5 tests):
+    - test_warning_shown_for_consolidate_group_with_mixed_types
+    - test_no_warning_shown_for_skip_group_with_mixed_types
+    - test_summary_shows_total_mixed_groups_count
+    - test_no_mixed_warning_summary_when_no_mixed_groups
+    - test_multiple_mixed_groups_count
+  - TestRunExecuteWithMixedContentWarning class (2 tests):
+    - test_execute_shows_mixed_content_warning
+    - test_execute_shows_mixed_content_count_in_summary
+- Updated PRD.md to mark "Warn if consolidating folders with different content types" task as complete
+- All 762 tests pass, linting passes
+- Task completed successfully
+- Implemented "Require explicit confirmation for content-mismatch consolidations" for Phase 6 (Safety & Verification)
+  - Created get_content_mismatch_groups() function in organizer/cli.py:
+    - Identifies all folder groups marked for consolidation that have mixed content types
+    - Returns list of groups that contain folders with different AI categories
+    - Only returns groups from content-aware plans (returns empty for non-content-aware)
+  - Created get_content_mismatch_confirmation() function in organizer/cli.py:
+    - Displays detailed warning about content-mismatch consolidations
+    - Shows each mismatch group with name, categories, folder count, and file count
+    - Warns that action cannot be undone
+    - Requires explicit 'yes' confirmation to proceed
+    - Returns True immediately if no mismatch groups (no confirmation needed)
+  - Updated run_execute() to integrate content-mismatch confirmation:
+    - After displaying content analysis summary, checks for content mismatches
+    - If mismatches exist, prompts for explicit confirmation before proceeding
+    - Aborts execution if user declines mismatch confirmation
+    - Shows "Content-mismatch consolidations confirmed." message on confirmation
+    - Confirmation happens BEFORE the main execution safety check
+  - Updated organizer/__init__.py to export new functions:
+    - get_content_mismatch_groups
+    - get_content_mismatch_confirmation
+- Created 19 new tests in tests/test_cli.py covering:
+  - TestGetContentMismatchGroups class (5 tests):
+    - test_returns_empty_for_non_content_aware_plan
+    - test_returns_empty_for_plan_with_no_mismatches
+    - test_returns_groups_with_mixed_content
+    - test_excludes_groups_not_marked_for_consolidation
+    - test_returns_multiple_mismatch_groups
+  - TestGetContentMismatchConfirmation class (7 tests):
+    - test_returns_true_for_empty_mismatch_list
+    - test_returns_true_when_user_types_yes
+    - test_returns_false_when_user_types_no
+    - test_returns_false_when_user_presses_enter
+    - test_shows_group_details
+    - test_shows_multiple_groups
+    - test_shows_warning_message
+  - TestRunExecuteWithContentMismatchConfirmation class (7 tests):
+    - test_execute_shows_mismatch_confirmation_prompt
+    - test_execute_aborts_when_mismatch_declined
+    - test_execute_continues_when_mismatch_confirmed
+    - test_execute_skips_mismatch_confirmation_when_no_mismatches
+    - test_execute_skips_mismatch_confirmation_for_non_content_aware
+    - test_execute_requires_two_confirmations_for_mismatch
+- Updated PRD.md to mark "Require explicit confirmation for content-mismatch consolidations" task as complete
+- All 780 tests pass, linting passes
+- Task completed successfully
+- Implemented "Log content analysis results to execution log" for Phase 6 (Safety & Verification)
+  - Created ContentAnalysisEntry dataclass to store content analysis data per group:
+    - group_name, should_consolidate, decision_summary, confidence
+    - ai_categories, date_ranges, reasoning
+    - folder_summaries for per-folder content details
+  - Added from_folder_group() classmethod to create entries from FolderGroup
+  - Updated GroupLogEntry dataclass:
+    - Added content_analysis field (ContentAnalysisEntry | None)
+    - Updated to_dict() to include content_analysis when present
+  - Updated ExecutionLog dataclass:
+    - Added content_aware flag and content_analysis_summary dict
+    - Updated to_dict() to include content_aware in execution_summary
+    - Added content_analysis section when content-aware mode is used
+    - Added _build_content_analysis_summary() classmethod to aggregate analysis data
+    - Updated from_execution_result() to accept optional ConsolidationPlan parameter
+    - When plan is provided, extracts content analysis per group and builds summary
+  - Updated create_execution_log() function:
+    - Added plan parameter (optional) to pass ConsolidationPlan for content analysis
+    - Backward compatible - works without plan parameter
+  - Content analysis summary includes:
+    - content_aware_mode flag
+    - groups_analyzed, groups_to_consolidate, groups_to_skip counts
+    - ai_categories_found with counts
+    - date_ranges_found
+    - group_decisions list with per-group analysis details
+  - Updated organizer/__init__.py to export ContentAnalysisEntry
+- Created 16 new tests in tests/test_execution_logger.py covering:
+  - TestContentAnalysisEntry class (4 tests):
+    - test_creation, test_to_dict
+    - test_from_folder_group, test_from_folder_group_no_consolidate
+  - TestGroupLogEntryWithContentAnalysis class (2 tests):
+    - test_to_dict_without_content_analysis, test_to_dict_with_content_analysis
+  - TestExecutionLogWithContentAnalysis class (5 tests):
+    - test_to_dict_includes_content_aware_flag
+    - test_to_dict_includes_content_analysis_summary
+    - test_to_dict_no_content_analysis_when_not_content_aware
+    - test_from_execution_result_with_plan, test_from_execution_result_without_plan
+  - TestCreateExecutionLogWithContentAnalysis class (3 tests):
+    - test_create_log_with_content_aware_plan
+    - test_create_log_includes_group_content_analysis
+    - test_create_log_without_plan_backward_compatible
+  - TestContentAnalysisIntegration class (2 tests):
+    - test_full_content_aware_logging_workflow
+    - test_mixed_consolidation_decisions_logged
+- Updated PRD.md to mark "Log content analysis results to execution log" task as complete
+- All 796 tests pass, linting passes
+- Task completed successfully (Phase 6: Safety & Verification is now fully complete!)
+
+- Created dashboard/ directory with Next.js + TypeScript app (Dashboard Phase 1)
+  - Created directory structure: dashboard/app, dashboard/lib, dashboard/components, dashboard/__tests__
+  - Set up package.json with Next.js 16, React 19, Supabase client, Recharts, Tailwind, TypeScript
+  - Configured tsconfig.json, postcss.config.mjs, next.config.ts
+  - Created app/layout.tsx, app/page.tsx, app/globals.css
+- Configured Supabase client connection (Dashboard Phase 1)
+  - Created lib/supabase.ts with:
+    - Document and DocumentLocation TypeScript interfaces
+    - getSupabaseClient() - singleton pattern with environment variable validation
+    - testConnection() - verifies database connectivity and returns document count
+    - getDocuments() - paginated document retrieval with filtering and sorting
+    - getCategoryStats() - category count aggregation with RPC fallback
+    - searchDocuments() - multi-field search across file_name, ai_category, ai_summary, current_path
+  - Created .env.example with Supabase configuration template
+- Created API routes for database queries (Dashboard Phase 1)
+  - app/api/documents/route.ts - GET endpoint for document listing with pagination
+  - app/api/statistics/route.ts - GET endpoint for category statistics
+  - app/api/search/route.ts - GET endpoint for document search
+  - app/api/health/route.ts - GET endpoint for database connection health check
+- Created lib/utils.ts with cn() utility for Tailwind class merging
+- Created comprehensive tests in __tests__/supabase.test.ts (19 tests) covering:
+  - Supabase client singleton creation and environment variable validation
+  - testConnection() success and error scenarios
+  - getDocuments() pagination, filtering, ordering, and error handling
+  - getCategoryStats() RPC and fallback scenarios
+  - searchDocuments() multi-field search
+  - Document TypeScript interfaces
+- Created __tests__/utils.test.ts (7 tests) for cn() utility
+- Configured vitest with vitest.config.ts and __tests__/setup.ts
+- Configured ESLint with eslint.config.mjs using typescript-eslint for flat config
+- All 26 tests pass, TypeScript and ESLint pass
+- Updated PRD.md to mark all Phase 1 tasks as complete
+- Task completed successfully (Dashboard Phase 1: Setup & Database Integration is now complete!)
+
+- Enhanced statistics API endpoint for Dashboard Phase 2
+  - Added ContextBinCount interface for context bin statistics
+  - Added StatisticsResult interface for combined statistics response
+  - Implemented getDateDistribution() - extracts years from key_dates arrays and counts documents per year
+    - Counts each unique year once per document (not per date)
+    - Sorts by year descending (most recent first)
+    - Handles various date formats: ISO, US format (MM/DD/YYYY), text with years
+  - Implemented extractYearFromDate() helper function
+    - Supports ISO format (YYYY-MM-DD, YYYY-MM-DDTHH:mm:ss)
+    - Supports US format (MM/DD/YYYY, MM-DD-YYYY)
+    - Extracts years from text (1900-2099 range)
+  - Implemented getContextBinCounts() - extracts top-level folder from folder_hierarchy
+    - Documents without hierarchy counted as "uncategorized"
+    - Sorted by count descending
+  - Implemented getStatistics() - combines all three statistics queries in parallel
+  - Updated app/api/statistics/route.ts to return all statistics:
+    - categories: AI category counts
+    - dateDistribution: Year counts from key_dates
+    - contextBins: Top-level folder hierarchy counts
+- Created 22 new tests in __tests__/supabase.test.ts covering:
+  - extractYearFromDate() for various date formats (7 tests)
+  - getDateDistribution() success, unique counting, sorting, nulls, errors (6 tests)
+  - getContextBinCounts() success, uncategorized, sorting, errors (4 tests)
+  - getStatistics() combined results, errors, partial failures (3 tests)
+  - Statistics types interfaces (2 tests)
+- All 48 dashboard tests pass, linting passes
+- Updated PRD.md to mark "Create statistics API endpoint" task as complete
+- Task completed successfully (Dashboard Phase 2: Statistics API endpoint complete!)
+
+- Built statistics UI component for Dashboard Phase 2
+  - Created components/StatCard.tsx - reusable stat card component with:
+    - title, value (number or string), optional description
+    - Tailwind styling with rounded border and neutral color scheme
+  - Created components/CategoryChart.tsx - horizontal bar chart using Recharts:
+    - Displays AI categories with document counts
+    - Color-coded bars with 10 distinct colors
+    - Formatted category names (snake_case to Title Case)
+    - Click handler for category filtering (navigates to /browse?category=...)
+  - Created components/DateDistributionChart.tsx - vertical bar chart using Recharts:
+    - Displays document counts by year (sorted ascending for timeline view)
+    - Click handler for year filtering (navigates to /browse?year=...)
+  - Created components/ContextBinChart.tsx - donut/pie chart using Recharts:
+    - Displays documents grouped by top-level folder hierarchy
+    - Legend on right side showing all bins
+    - Click handler for bin filtering (navigates to /browse?contextBin=...)
+  - Created components/index.ts for clean exports
+  - Created app/statistics/page.tsx - main statistics page with:
+    - Loading state with centered message
+    - Error handling with styled error message and back link
+    - Summary stats section: Total Documents, Categories count, Years count, Context Bins count
+    - Category Breakdown section with CategoryChart
+    - Date Distribution section with DateDistributionChart
+    - Context Bins section with ContextBinChart
+    - Empty state messages for each section when no data available
+    - Connection status indicator at bottom
+    - Back to Dashboard link
+- Created __tests__/components.test.tsx with 18 tests covering:
+  - StatCard: renders title/value, string value, description, without description, custom className
+  - CategoryChart: renders without crashing, with empty data, accepts callback, formats names
+  - DateDistributionChart: renders without crashing, empty data, callback, sorting
+  - ContextBinChart: renders without crashing, empty data, callback, uncategorized handling
+  - Component exports from index
+- Created __tests__/statistics-page.test.tsx with 13 tests covering:
+  - Loading state initially
+  - Renders statistics data when loaded (stat cards, values)
+  - Renders chart components
+  - Error message on fetch failure (HTTP 500)
+  - Error message from API response
+  - Network error message
+  - Connected/Disconnected status display
+  - Empty state messages when no data
+  - Back to dashboard link
+  - Section headings (Category Breakdown, Date Distribution, Context Bins)
+  - Page description
+  - Click handlers defined for charts
+- Updated __tests__/setup.ts to import jest-dom matchers for toHaveAttribute
+- All 79 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Build statistics UI component" task as complete
+- Task completed successfully (Dashboard Phase 2: Statistics UI component complete!)
+
+- Implemented filtering (by category, date range) for Statistics Dashboard Phase 2
+  - Created components/StatisticsFilter.tsx with:
+    - FilterOptions interface with category, startYear, endYear fields
+    - StatisticsFilter component with collapsible filter panel
+    - Category dropdown with formatted category names (snake_case to Title Case)
+    - Start Year and End Year dropdowns for date range filtering
+    - "Active" badge and "Clear all" button when filters are applied
+    - Filter tags displayed when panel is collapsed (with remove buttons)
+    - applyFiltersToCategories() utility function for filtering category data
+    - applyFiltersToDateDistribution() utility function for filtering date data
+  - Updated components/index.ts to export:
+    - StatisticsFilter component
+    - applyFiltersToCategories function
+    - applyFiltersToDateDistribution function
+    - FilterOptions type
+  - Updated app/statistics/page.tsx to integrate filtering:
+    - Added filters state with DEFAULT_FILTERS constant
+    - Added useMemo hooks for filteredData, availableCategories, availableYears
+    - Integrated StatisticsFilter component with callbacks
+    - Updated StatCard components to show filtered counts and descriptions
+    - Added filter status message banner when filters are active
+    - Updated empty state messages to differentiate between "no data" and "no matches"
+- Created __tests__/statistics-filter.test.tsx with 35 tests covering:
+  - StatisticsFilter rendering (toggle button, Active badge, Clear all button)
+  - Expand/collapse behavior
+  - Category filter (options, selection, clearing, formatting)
+  - Year filters (sorting, start/end year selection, clearing)
+  - Clear filters functionality
+  - Filter tags (display, remove buttons for each filter type)
+  - Empty states (empty categories, empty years)
+  - applyFiltersToCategories() (no filter, single category, nonexistent, year filters ignored)
+  - applyFiltersToDateDistribution() (no filter, start year, end year, both, no matches, inclusive boundaries, category filter ignored)
+  - Component exports
+- All 114 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Add filtering (by category, date range)" task as complete
+- Task completed successfully (Dashboard Phase 2: Filtering feature complete!)
+
+- Implemented interactive chart filtering for Dashboard Phase 2 (final Phase 2 task)
+  - Updated handleCategoryClick() to set category filter instead of navigating to /browse
+    - Toggle behavior: clicking same category clears filter, clicking different category sets it
+  - Updated handleYearClick() to set year filter (both startYear and endYear) instead of navigating
+    - Toggle behavior: clicking same year clears filter, clicking different year sets it
+  - handleBinClick() left as placeholder (context bin filtering not yet in FilterOptions)
+  - Updated help text under charts from "Click to filter documents" to "Click to filter. Click again to clear."
+- Created 3 new tests in __tests__/statistics-page.test.tsx (TestStatisticsPageInteractiveChartFiltering):
+  - test_shows_updated_help_text_for_category_chart
+  - test_shows_updated_help_text_for_date_chart
+  - test_does_not_navigate_when_chart_is_clicked
+- All 117 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Make charts interactive (click to filter)" task as complete
+- Task completed successfully (Dashboard Phase 2: Statistics Dashboard is now fully complete!)
+
+- Created dashboard/lib/nlp-search.ts with natural language query parser (Dashboard Phase 3)
+  - Implemented ParsedQuery interface for structured search parameters
+  - Implemented CATEGORY_KEYWORDS constant mapping search terms to AI categories:
+    - utility_bill, tax_document, va_claims, invoice, bank_statement, contract, medical_record, employment, insurance, legal
+  - Implemented ORGANIZATION_PATTERNS constant for entity extraction (Verizon, Amazon, IRS, VA, banks, etc.)
+  - Implemented parseNaturalLanguageQuery() - main entry point that extracts:
+    - Category from keywords (e.g., "verizon bill" → utility_bill)
+    - Years from dates (e.g., "from 2024" → [2024])
+    - Organizations from text (e.g., "verizon" → ["Verizon"])
+    - Search terms (remaining keywords after extraction)
+  - Implemented detectNaturalLanguage() - detects if query is natural language vs keyword search
+  - Implemented extractYears() - extracts years in 1900-2099 range, sorted descending
+  - Implemented extractOrganizations() - extracts organization names with proper capitalization
+  - Implemented detectCategory() - matches keywords to categories with scoring for multiple matches
+  - Implemented extractSearchTerms() - removes stop words and extracted entities
+  - Implemented buildSearchDescription() - generates human-readable filter description
+  - Implemented formatCategoryName() - converts snake_case to Title Case
+- Updated dashboard/lib/supabase.ts with naturalLanguageSearch function:
+  - Accepts parsed query with category, years, organizations, and search terms
+  - Applies category filter via Supabase eq()
+  - Builds text search conditions via Supabase or() for ai_summary, file_name, current_path, ai_category
+  - Post-filters results by years (checks key_dates array)
+  - Post-filters results by organizations (checks entities JSONB and text fields)
+  - Implemented filterByYears() helper - filters documents by year in key_dates
+  - Implemented filterByOrganizations() helper - filters by org in entities, summary, or filename
+- Updated dashboard/app/api/search/route.ts:
+  - Added "mode" query parameter: "natural" (default) or "simple"
+  - Natural language mode parses query and returns parsed filters with results
+  - Simple mode uses original searchDocuments() for backward compatibility
+  - Returns searchDescription for UI display
+- Created __tests__/nlp-search.test.ts with 67 tests covering:
+  - parseNaturalLanguageQuery() for various query types (PRD examples, keywords, questions)
+  - detectNaturalLanguage() for natural language indicators
+  - extractYears() for various year formats and edge cases
+  - extractOrganizations() for organization extraction and capitalization
+  - detectCategory() for all category types and priority scoring
+  - extractSearchTerms() for stop word removal and deduplication
+  - buildSearchDescription() for filter description generation
+  - formatCategoryName() for snake_case conversion
+  - PRD example queries (7 specific tests)
+- Added 24 new tests to __tests__/supabase.test.ts covering:
+  - naturalLanguageSearch() with category filter, organization filter, year filter, errors, limits
+  - filterByYears() for single year, multiple years, no matches, empty array, null dates
+  - filterByOrganizations() for entities, summary, filename, case insensitivity, multiple orgs
+- All 202 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Create search API endpoint" task as complete
+- Task completed successfully (Dashboard Phase 3: Search API endpoint complete!)
+
+- Built search UI components for Dashboard Phase 3
+  - Created components/SearchInput.tsx:
+    - Search input field with placeholder text
+    - Submit button with loading state
+    - Example queries from PRD displayed as clickable buttons
+    - EXAMPLE_QUERIES constant with all PRD-specified queries
+    - Trims whitespace, validates non-empty queries
+    - Accepts initialQuery, isLoading, className props
+    - Accessible with aria-label
+  - Created components/SearchResultCard.tsx:
+    - Displays document file name prominently
+    - Clickable path button (copies to clipboard on click)
+    - Formatted category name (snake_case to Title Case)
+    - AI summary display
+    - Entities display (people, organizations, amounts) with badges
+    - Date display with truncation for long lists
+    - Handles missing/null fields gracefully
+  - Created app/search/page.tsx:
+    - Full search page with SearchInput component
+    - Fetches from /api/search with natural language mode
+    - Displays search description and parsed filters as badges
+    - Shows results count with singular/plural handling
+    - SearchResultCard for each result
+    - Loading state, error handling, empty state
+    - Path click copies to clipboard with alert
+    - Back to Dashboard link
+  - Updated components/index.ts to export new components
+- Created __tests__/search-components.test.tsx with 33 tests covering:
+  - SearchInput: rendering, form submission, example clicks, loading state
+  - SearchInput: disabled states, initialQuery, className, accessibility
+  - SearchResultCard: file name, path button, category, summary, entities
+  - SearchResultCard: date formatting, truncation, missing fields handling
+  - EXAMPLE_QUERIES constant validation
+  - Component exports
+- Created __tests__/search-page.test.tsx with 18 tests covering:
+  - Page rendering, title, back link
+  - Search submission, results display
+  - Parsed filters badges (category, years, organizations)
+  - Search description display
+  - No results message, error handling
+  - Loading state, example query clicks
+  - Path click clipboard handling
+- All 253 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Build search UI" task as complete
+- Task completed successfully (Dashboard Phase 3: Search UI complete!)
+
+- Verified "Display search results" task is already fully implemented in SearchResultCard.tsx:
+  - File name displayed via `<h3>` tag (line 79-81)
+  - Full path as clickable button with onPathClick handler (line 82-88)
+  - AI category formatted (snake_case to Title Case) and summary displayed (line 92-114)
+  - Key entities (people, organizations, amounts) shown with badges (line 117-138)
+  - Date information formatted with truncation for long lists (line 99-104)
+- All 253 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Display search results" task as complete
+- Task completed successfully (Dashboard Phase 3: Natural Language Search is now fully complete!)
+
+- Enhanced document list API endpoint for Dashboard Phase 4 (Document Browser)
+  - Added DocumentListOptions interface with new filter options:
+    - category: Filter by AI category (existing)
+    - contextBin: Filter by top-level folder hierarchy
+    - startYear/endYear: Filter by date range in key_dates
+    - search: Keyword search across multiple fields
+    - limit/offset: Pagination (existing)
+    - orderBy/orderDirection: Sorting (existing)
+  - Added DocumentListResult interface with:
+    - documents: Filtered and paginated document list
+    - total: Total document count in database
+    - filteredTotal: Count after applying filters (before pagination)
+    - error: Optional error message
+  - Enhanced getDocuments() function in lib/supabase.ts:
+    - Added keyword search via Supabase or() across file_name, ai_category, ai_summary, current_path
+    - Added client-side filtering for context bin (checks folder_hierarchy[0])
+    - Added client-side filtering for date range (checks key_dates array)
+    - Pagination applied after all filters for accurate counts
+  - Implemented filterByContextBin() helper function:
+    - Case-insensitive matching of top-level folder
+    - Handles null/empty folder_hierarchy as "uncategorized"
+  - Implemented filterByDateRange() helper function:
+    - Filters documents by year range in key_dates
+    - Inclusive boundaries (startYear <= year <= endYear)
+    - Excludes documents without key_dates
+  - Updated app/api/documents/route.ts:
+    - Added query parameters: contextBin, startYear, endYear, search
+    - Added validation for year parameters (1900-2099, startYear <= endYear)
+    - Returns filteredTotal in response for UI pagination
+- Created 30 new tests in __tests__/supabase.test.ts covering:
+  - filterByContextBin: by context bin, case insensitive, uncategorized, no match, top-level only
+  - filterByDateRange: start year, end year, range, single year, boundaries, no match, no dates
+  - getDocuments enhanced: filteredTotal, contextBin filter, date range, search, combined filters, pagination
+  - DocumentListOptions and DocumentListResult interface structure tests
+- Updated existing getDocuments tests to match new pagination behavior (client-side)
+- All 276 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Create document list API endpoint" task as complete
+- Task completed successfully (Dashboard Phase 4: Document list API endpoint complete!)
+
+- Built document browser UI for Dashboard Phase 4
+  - Created components/DocumentBrowserFilter.tsx:
+    - DocumentFilterOptions interface with category, contextBin, startYear, endYear, search fields
+    - DEFAULT_DOCUMENT_FILTERS constant for initial state
+    - Filter component with collapsible panel (expanded by default)
+    - Search input field for keyword search
+    - Category dropdown with formatted category names
+    - Context Bin dropdown for folder hierarchy filtering
+    - Start Year and End Year dropdowns for date range filtering
+    - Active badge and Clear all button when filters applied
+    - Filter tags displayed when panel is collapsed
+  - Created components/DocumentTable.tsx:
+    - SortField and SortDirection types for sorting
+    - Table with sortable columns (Name, Path, Category, Dates, Context Bin, Created)
+    - Sort indicator arrows on column headers
+    - Clickable paths that trigger onPathClick callback
+    - Path truncation for long file paths (shows "..." in middle)
+    - Formatted category names (snake_case to Title Case)
+    - Date formatting from key_dates array
+    - Context bin extraction from folder_hierarchy
+    - Empty state when no documents
+  - Created components/Pagination.tsx:
+    - Page info display (Showing X-Y of Z documents)
+    - Items per page selector (10, 20, 50, 100 options)
+    - Previous/Next buttons with disabled states
+    - Page number buttons with ellipsis for many pages
+    - Current page highlight with aria-current attribute
+  - Created app/browse/page.tsx:
+    - Full document browser page with all components
+    - Fetches documents from /api/documents with filters and pagination
+    - Fetches statistics for filter dropdown options
+    - URL param support for initial filters (category, contextBin, year)
+    - Sort state management with toggle behavior
+    - Pagination state management with page reset on filter change
+    - Path click copies to clipboard with alert
+    - Results summary showing filtered count vs total
+    - Loading and error states
+    - Retry button on error
+  - Updated components/index.ts to export new components
+- Created __tests__/document-browser.test.tsx with 40 tests covering:
+  - DocumentBrowserFilter: toggle, active badge, clear, category/context/search/year changes, formatting, sorting
+  - DEFAULT_DOCUMENT_FILTERS constant values
+  - DocumentTable: render, empty state, headers, sort clicks, path clicks, formatting, dates, context bin, truncation
+  - Pagination: page info, ranges, empty state, selector, Previous/Next, page buttons, current highlight, ellipsis
+  - Component exports
+- Created __tests__/browse-page.test.tsx with 17 tests covering:
+  - Page rendering (title, back link, description)
+  - Loading state, fetching documents, document count display
+  - Filter component and pagination component rendering
+  - Error handling with retry button
+  - URL params for initial filters
+  - Sort and pagination parameters in fetch
+  - Re-fetching on sort change, direction toggle, page change
+- All 333 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Build document browser UI" task as complete
+- Task completed successfully (Dashboard Phase 4: Document Browser UI complete!)
+
+- Implemented "Open in Finder" functionality for macOS (Dashboard Phase 4)
+  - Created app/api/open-in-finder/route.ts API endpoint:
+    - POST endpoint that accepts { path: string } in request body
+    - Validates path is provided, is a string, and is absolute
+    - Uses path.normalize() to clean path and prevent traversal attacks
+    - Checks if file exists using fs.existsSync()
+    - Executes `open -R '<path>'` command to reveal file in Finder on macOS
+    - Properly escapes single quotes in paths for shell execution
+    - Returns appropriate error responses for:
+      - Non-macOS platforms (400)
+      - Missing/invalid path (400)
+      - Relative paths (400)
+      - File not found (404)
+      - Execution errors (500)
+  - Updated lib/utils.ts with utility functions:
+    - OpenInFinderResult interface for API responses
+    - openInFinder(filePath) - calls API endpoint, handles errors gracefully
+    - copyToClipboard(path) - fallback for copying path to clipboard
+  - Updated app/search/page.tsx:
+    - handlePathClick now calls openInFinder() first
+    - Falls back to clipboard copy with informative message if Finder fails
+  - Updated app/browse/page.tsx:
+    - handlePathClick now calls openInFinder() first
+    - Falls back to clipboard copy with informative message if Finder fails
+- Created __tests__/open-in-finder-api.test.ts with 10 tests covering:
+  - Platform validation (non-macOS error)
+  - Path validation (missing, empty, non-string, relative paths)
+  - File existence check (nonexistent file error)
+  - Path normalization (traversal attempts)
+  - Invalid JSON body handling
+- Updated __tests__/utils.test.ts with 8 tests covering:
+  - openInFinder: success, API call parameters, error responses, network errors
+  - copyToClipboard: success and failure cases
+- All 351 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Add 'Open in Finder' functionality (macOS)" task as complete
+- Task completed successfully (Dashboard Phase 4 is now fully complete!)
+
+- Created empty folders API endpoint for Dashboard Phase 5 (Empty Folders Detection & Management)
+  - Added EmptyFolderInfo, MovedFileInfo, EmptyFoldersResult, FolderHistoryResult interfaces to lib/supabase.ts
+  - Implemented getEmptyFolders() function to query document_locations for previous locations:
+    - Groups files by folder path (directory of file location)
+    - Gets current paths for moved documents from documents table
+    - Builds MovedFileInfo with documentId, fileName, originalPath, currentPath, movedAt
+    - Sorts moved files by date descending
+    - Calculates lastMoveDate from most recent move
+    - Sorts folders by original file count descending
+  - Implemented getFolderHistory(folderPath) function to get files moved from a specific folder:
+    - Queries document_locations with location_type='previous'
+    - Filters to only files directly in folder (not subfolders)
+    - Returns file list sorted by moved date descending
+  - Implemented extractFolderPath() and extractFileName() helper functions
+  - Created app/api/empty-folders/route.ts with:
+    - GET endpoint for finding empty folders after consolidation
+    - Query params: verifyFilesystem (default true), onlyEmpty (default false)
+    - Verifies filesystem status (empty/not_empty/not_found) using readdirSync
+    - Returns: emptyFolders array, totalEmptyFolders, verifiedEmpty/notEmpty/notFound counts
+    - POST endpoint for getting folder history
+    - Validates path (required, absolute), normalizes path
+    - Returns: folderPath, files array, originalFileCount, folderStatus
+- Created __tests__/empty-folders-api.test.ts with 37 tests covering:
+  - extractFolderPath(): file path, empty, filename only, root level, deeply nested
+  - extractFileName(): file path, empty, no separator, deeply nested
+  - getEmptyFolders(): empty array, grouping, database errors (locations/documents), sorting, lastMoveDate, exceptions
+  - getFolderHistory(): files from folder, empty array, database error, exclude subfolders, sorting, exceptions
+  - GET /api/empty-folders: return folders, verify filesystem, skip verification, 500 on error, filter only empty
+  - POST /api/empty-folders: folder history, missing path, not string, relative paths, normalize path, not_found status, database error, invalid JSON
+  - Type structure tests for EmptyFolderInfo and MovedFileInfo
+- All 388 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Create empty folders API endpoint" task as complete
+- Task completed successfully (Dashboard Phase 5: Empty Folders API endpoint complete!)
+
+- Implemented folder assessment logic for Dashboard Phase 5 (Empty Folders Detection & Management)
+  - Added CATEGORY_PATTERNS constant mapping folder name patterns to AI categories:
+    - employment: resume, cv, job, career, work, application
+    - finances: tax, bank, invoice, bill, receipt, payment
+    - utility_bill: utility, verizon, att, comcast, electric
+    - tax_document: tax, 1099, w2, irs, return
+    - va_claims: va, veteran, disability, claim, dd214, military
+    - health, medical_record, legal, contract, identity, education, insurance
+  - Added CANONICAL_FOLDERS constant with canonical folder names per category
+  - Implemented normalizeFolderName() - normalizes folder names for comparison
+  - Implemented getSimilarityScore() - calculates 0.0-1.0 similarity using Dice coefficient
+  - Implemented doesFolderMatchCategory() - checks if folder name matches category patterns
+  - Implemented detectCategoryFromFolderName() - detects AI category from folder name
+  - Implemented findSimilarCanonicalFolder() - finds similar canonical folder with threshold
+  - Implemented getDominantCategory() - returns most common category from list
+  - Implemented assessFolderLocation() - main assessment function that:
+    1. Gets files that were moved from the folder via getFolderHistory()
+    2. Queries AI categories and folder_hierarchy for moved documents
+    3. Checks if folder name matches dominant AI category (Rule 1)
+    4. Checks if folder name appears in folder_hierarchy patterns (Rule 2)
+    5. Checks if folder name matches canonical registry (Rule 3)
+    6. Detects category-specific patterns in folder name (Rule 4)
+    7. Returns FolderAssessment with:
+       - assessment: "correct" | "incorrect" | "duplicate" | "unknown"
+       - confidence: 0.0-1.0 score
+       - reasoning: List of analysis steps
+       - suggestedAction: "restore" | "remove" | "keep" | "review"
+       - Analysis details: categoryMatch, folderHierarchyMatch, canonicalMatch
+  - Added FolderAssessment and FolderAssessmentResult interfaces
+- Created app/api/empty-folders/assess/route.ts API endpoint:
+  - POST /api/empty-folders/assess endpoint
+  - Validates folderPath (required, string, absolute path)
+  - Normalizes path to prevent traversal attacks
+  - Returns assessment result with movedFiles array
+  - Handles invalid JSON, database errors gracefully
+- Created 45 new tests in __tests__/empty-folders-api.test.ts covering:
+  - normalizeFolderName: lowercase, trailing numbers, underscores/hyphens, empty string
+  - getSimilarityScore: identical, empty, contains, dissimilar, similar strings
+  - doesFolderMatchCategory: employment, tax, VA claims, unrelated, unknown category
+  - detectCategoryFromFolderName: resume, tax, veteran, unrecognized folders
+  - findSimilarCanonicalFolder: exact match, similar, unrelated, custom threshold
+  - getDominantCategory: most common, empty, single, null values
+  - CATEGORY_PATTERNS and CANONICAL_FOLDERS constants
+  - assessFolderLocation: unknown (no files), correct (category matches), duplicate
+  - assessFolderLocation: database error, exceptions, folder name extraction
+  - assessFolderLocation: folder hierarchy match
+  - FolderAssessment type structure
+  - API endpoint: valid path, missing path, non-string, relative path
+  - API endpoint: path normalization, invalid JSON, database error, moved files
+- All 433 dashboard tests pass, linting passes
+- Updated PRD.md to mark "Implement folder assessment logic" task as complete
+- Task completed successfully (Dashboard Phase 5: Folder Assessment Logic complete!)
+
+- Implemented "Query execution logs and document_locations" for Dashboard Phase 5
+  - Created dashboard/lib/execution-logs.ts with functions to read and parse execution logs:
+    - parseExecutionLog() - parses raw execution log JSON into typed structure
+    - extractTimestampFromFilename() - extracts timestamp from log filename
+    - scanExecutionLogs() - scans .organizer directory for execution log files
+    - getExecutionLog() - gets a specific execution log by filename
+    - getFileMovementHistory() - extracts file movements from all logs
+    - getFolderMovementHistory() - gets movements for a specific folder
+    - getSourceFoldersFromLogs() - gets all unique source folders that had files moved
+  - Created ExecutionLog, ExecutionLogSummary, FileMovementHistoryEntry interfaces
+  - Created GroupLogEntry, FolderMoveEntry, FileMoveRecord, ContentAnalysisLogEntry types
+  - Created dashboard/app/api/execution-logs/route.ts API endpoint:
+    - GET /api/execution-logs?basePath=X&action=list - List all execution logs
+    - GET /api/execution-logs?basePath=X&action=get&logFile=Y - Get specific log
+    - GET /api/execution-logs?basePath=X&action=history - Get all file movements
+    - GET /api/execution-logs?basePath=X&action=folder-history&folderPath=Y - Get folder movements
+    - Validates basePath, logFile (prevents path traversal), folderPath (must be absolute)
+- Created __tests__/execution-logs.test.ts with 25 tests covering:
+  - extractTimestampFromFilename(): valid/invalid filenames, edge cases
+  - parseExecutionLog(): minimal log, group entries with rollback, missing fields
+  - scanExecutionLogs(): non-existent dir, empty dir, find logs, ignore non-logs, skip invalid JSON
+  - getExecutionLog(): non-existent, valid file, invalid JSON
+  - getFileMovementHistory(): no logs, extract movements, combine from multiple logs
+  - getFolderMovementHistory(): filter by folder, no movements
+  - getSourceFoldersFromLogs(): unique folders, empty, sorted
+  - Type structure tests
+- Created __tests__/execution-logs-api.test.ts with 17 tests covering:
+  - Parameter validation: missing basePath, unknown action
+  - action=list: empty, with logs, default action
+  - action=get: missing logFile, path traversal, non-existent, valid
+  - action=history: empty, with movements
+  - action=folder-history: missing folderPath, relative path, filtered, empty
+  - Error handling: non-existent basePath, invalid JSON
+- All 475 dashboard tests pass, linting passes
+- Updated PRD.md to mark "Query execution logs and document_locations" task as complete
+- Task completed successfully (Dashboard Phase 5: Execution Logs Query complete!)
+
+- Built empty folders UI for Dashboard Phase 5
+  - Created dashboard/components/EmptyFolderCard.tsx:
+    - Card component displaying folder info (name, path, file count, last move date)
+    - Assessment badge with color-coded status (Correct Location, Duplicate, Incorrect, Unknown)
+    - Assessment action buttons (Restore Files, Remove Folder, Keep Folder) based on suggestion
+    - Expandable sections for reasoning details and moved files list
+    - Loading state indicator during assessment
+    - Checkbox for bulk selection
+    - Path click handler integration
+  - Created dashboard/components/EmptyFoldersList.tsx:
+    - EmptyFoldersList component with folder cards
+    - EmptyFoldersFilter component with filter tabs (All, Empty, Not Empty, Assessed, Unassessed)
+    - BulkActionsBar component for bulk operations (Assess All, Restore All, Remove All)
+    - Select all checkbox with indeterminate state
+    - Exports EmptyFolderFilterType type
+  - Created dashboard/app/empty-folders/page.tsx:
+    - Full page with stats summary (Total Folders, Verified Empty, Not Empty, Assessed)
+    - Integration with /api/empty-folders endpoint for folder data
+    - Integration with /api/empty-folders/assess endpoint for folder assessment
+    - Filter state management with UI filter component
+    - Selection state management for bulk operations
+    - Path click handler with Open in Finder fallback to clipboard
+    - Loading and error states
+    - Back to Dashboard navigation
+  - Updated dashboard/components/index.ts with new component exports
+- Created comprehensive test suites:
+  - __tests__/empty-folders-ui.test.tsx (43 tests):
+    - EmptyFolderCard: rendering, status badges, action buttons, expand/collapse
+    - EmptyFoldersFilter: filter tabs, counts, selection state
+    - BulkActionsBar: rendering, loading states, clear selection
+    - EmptyFoldersList: rendering, empty state, select all, card props
+  - __tests__/empty-folders-page.test.tsx (19 tests):
+    - Page rendering, loading state, fetch and display
+    - Summary stats, filter buttons
+    - Error handling, retry functionality
+    - Filtering, assessment, bulk actions
+    - Selection management, path click handling
+- All 535 dashboard tests pass, linting passes
+- Updated PRD.md to mark "Build empty folders UI" task as complete
+- Task completed successfully (Dashboard Phase 5: Empty Folders UI complete!)
+
+- Implemented "Integrate with existing systems" for Dashboard Phase 5 (final Phase 5 task)
+  - Created dashboard/lib/canonical-registry.ts with canonical registry integration:
+    - CanonicalFolderEntry, CanonicalRegistry, CategoryInfo interfaces
+    - PYTHON_CATEGORY_PATTERNS constant synchronized with Python category_mapper.py
+      (employment, finances, legal, health, identity, education categories)
+    - normalizeForComparison() - normalizes folder names matching Python fuzzy_matcher.py
+    - calculateSimilarity() - bigram similarity (Dice coefficient) for folder matching
+    - areSimilarFolders() - checks if two folder names are similar (threshold 0.8)
+    - loadCanonicalRegistry() - loads registry from .organizer/canonical_folders.json
+    - findSimilarInRegistry() - finds similar folder in canonical registry
+    - getCategoryFromPythonPatterns() - categorizes folder using Python-aligned patterns
+    - getCanonicalFolderForCategory() - gets canonical folder info for a category
+    - folderMatchesCategoryCanonical() - checks if folder matches category canonical
+    - assessFolderWithRegistry() - assesses folder using registry and patterns
+  - Created dashboard/app/api/canonical-registry/route.ts API endpoint:
+    - GET /api/canonical-registry?basePath=X - returns registry and category patterns
+    - POST /api/canonical-registry - assesses folder using registry
+      Body: { basePath, folderName, dominantCategory? }
+  - Updated dashboard/lib/supabase.ts:
+    - Integrated canonical registry into assessFolderLocation()
+    - Added canonicalRegistryMatch, executionLogMatch, executionLogMovements fields to FolderAssessment
+    - assessFolderLocation() now accepts optional organizerBasePath parameter
+    - Synced CATEGORY_PATTERNS with Python category_mapper.py
+    - Updated CANONICAL_FOLDERS to match Python category_mapper.py
+  - Fixed pre-existing bug in dashboard/app/empty-folders/page.tsx:
+    - Moved filteredFolders useMemo declaration before handleSelectAll callback
+    - handleSelectAll was using filteredFolders before it was declared
+  - Created dashboard/__tests__/canonical-registry.test.ts with tests for helper functions
+  - Created dashboard/__tests__/canonical-registry-api.test.ts with API endpoint tests
+- All 584 dashboard tests pass, linting passes
+- Updated PRD.md to mark "Integrate with existing systems" task as complete
+- Task completed successfully (Dashboard Phase 5: Empty Folders Detection & Management is now fully complete!)
+
+- Created orphaned files API endpoints for Dashboard Phase 6 (Orphaned Files Detection & Restoration)
+  - Added OrphanedFileInfo, MissingFileInfo, OrphanedFilesResult, MissingFilesResult interfaces to lib/supabase.ts
+  - Added FILE_TYPE_LOCATION_PATTERNS constant mapping file extensions to suggested folders:
+    - .plist → Library/Preferences, .pdf → Documents, .doc/.docx → Documents
+    - .xls/.xlsx → Documents/Spreadsheets, .jpg/.jpeg/.png → Pictures
+    - .mp4/.mov → Videos, .mp3/.m4a → Music, .zip/.tar → Downloads
+  - Implemented getMissingFiles() - queries documents table for files where path doesn't exist
+    - Returns documents with id, file_name, current_path from database
+    - Groups by document for summary counts
+  - Implemented getOriginalLocation() - gets original path from document_locations table
+    - Queries location_type='previous' entries
+    - Returns location history sorted by date ascending (oldest first)
+    - Checks accessibility of each historical path
+  - Implemented suggestLocationForFile() - suggests target location for orphaned files:
+    - Priority 1: Filename patterns (resume, tax, invoice, etc.) → category-specific folder
+    - Priority 2: File type patterns (.plist → Preferences, .pdf → Documents, etc.)
+    - Returns suggested path, reasoning, confidence (0.0-1.0), and match type
+  - Implemented checkFileInDatabase() - checks if file path exists in documents table
+  - Implemented updateDocumentPath() - updates document path with optional history logging
+  - Implemented removeDocumentFromDatabase() - removes document and related entries
+  - Implemented markDocumentInaccessible() - marks document as inaccessible in document_locations
+  - Created dashboard/app/api/orphaned/route.ts:
+    - GET /api/orphaned?directory=X - scans directory for files not in database
+      - Supports recursive scanning with configurable max depth
+      - Filters for supported file extensions
+      - Returns file info with suggested locations
+    - POST /api/orphaned - suggests location for a specific file path
+  - Created dashboard/app/api/missing/route.ts:
+    - GET /api/missing - finds files in database with missing paths
+      - Optional filesystem verification
+      - Returns counts: verifiedMissing, stillAccessible
+    - POST /api/missing - performs actions on missing files:
+      - action=get-original: Gets original path from document_locations
+      - action=update-path: Updates document path
+      - action=remove: Removes document from database
+      - action=mark-inaccessible: Marks document as inaccessible
+- Created comprehensive test suite in __tests__/orphaned-files.test.ts (60 tests) covering:
+  - FILE_TYPE_LOCATION_PATTERNS constant coverage
+  - suggestLocationForFile() for file types (.plist, .pdf, .mp3, .jpg) and filename patterns
+  - getMissingFiles() success, empty results, errors
+  - getOriginalLocation() with history, no history, errors
+  - checkFileInDatabase() for existing and non-existing files
+  - updateDocumentPath() success and errors
+  - removeDocumentFromDatabase() success and errors
+  - markDocumentInaccessible() success and errors
+  - GET /api/orphaned endpoint validation, directory scanning, suggestions
+  - POST /api/orphaned endpoint validation, location suggestion
+  - GET /api/missing endpoint validation, filesystem verification
+  - POST /api/missing endpoint actions (get-original, update-path, remove, mark-inaccessible)
+  - Type structure tests for OrphanedFileInfo and MissingFileInfo
+- Fixed pre-existing TypeScript errors in test files:
+  - Added canonicalRegistryMatch, executionLogMatch, executionLogMovements fields to FolderAssessment mocks
+  - Fixed __tests__/empty-folders-api.test.ts
+  - Fixed __tests__/empty-folders-ui.test.tsx
+- All 641 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Create orphaned files API endpoint" task as complete
+- Task completed successfully (Dashboard Phase 6: Orphaned Files API endpoint complete!)
+
+- Implemented enhanced location suggestion logic for Dashboard Phase 6 (Orphaned Files Detection)
+  - Created FILENAME_CATEGORY_PATTERNS constant synchronized with Python's organizer/category_mapper.py:
+    - employment: resume, cv, cover letter, job application → Employment/Resumes
+    - finances: tax, invoice, receipt, bank, 1099, w2 → Finances Bin/Taxes
+    - legal: contract, agreement, lease, nda → Contracts/Contracts
+    - health: medical, prescription, hospital → Health/Medical
+    - identity: passport, driver, ssn → Personal/Identity
+    - education: diploma, transcript, certificate → Education/Education
+  - Implemented detectCategoryFromFilename() - detects category from filename patterns
+  - Implemented findSimilarFilesByPattern() - finds similar files in database:
+    - Extracts search terms from filename
+    - Queries documents table for similar files
+    - Aggregates folder_hierarchy patterns to find dominant hierarchy
+    - Returns suggested folder based on where similar files are stored
+  - Implemented suggestLocationForFileEnhanced() - main entry point for enhanced suggestions:
+    - Step 1: Check if file exists in database → use document_locations for original path (confidence: 0.95)
+    - Step 2: Check folder_hierarchy patterns from similar files in database (confidence: 0.85)
+    - Step 3: Use filename pattern detection synced with Python category_mapper.py (confidence: 0.8)
+    - Step 4: Fall back to file type suggestion (confidence: 0.7)
+  - Implemented suggestLocationsForFiles() - batch processing with concurrency limit
+  - Created EnhancedLocationSuggestion interface extending LocationSuggestion:
+    - fromDatabase: boolean indicating if suggestion came from database
+    - databaseDocumentId: document ID if found in database
+    - detectedCategory: category detected from filename or similar files
+    - similarFilesCount: count of similar files that informed the suggestion
+- Created 35 new tests in __tests__/orphaned-files.test.ts covering:
+  - FILENAME_CATEGORY_PATTERNS: patterns for all 6 categories synced with Python
+  - detectCategoryFromFilename(): employment, finances, legal, health, identity, education categories
+  - detectCategoryFromFilename(): case insensitivity, unrecognized filenames
+  - findSimilarFilesByPattern(): similar files, dominant hierarchy, empty results, database errors
+  - suggestLocationForFileEnhanced(): database history, similar files, filename pattern, file type fallback
+  - suggestLocationForFileEnhanced(): basePath handling, .plist files
+  - suggestLocationsForFiles(): batch processing, basePath, empty list
+  - EnhancedLocationSuggestion type structure
+- All 676 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Implement location suggestion logic" task as complete
+- Task completed successfully (Dashboard Phase 6: Location Suggestion Logic complete!)
+
+
+- Built orphaned files UI components for Dashboard Phase 6 (Orphaned Files Detection & Restoration)
+  - Created OrphanedFileCard.tsx component:
+    - Displays orphaned file info: file name, path, size, modified date, file type
+    - Shows suggestion details when available with confidence badge and match type badge
+    - Match type badges: database_history (green), similar_files (blue), filename_pattern (purple), file_type (neutral)
+    - Confidence badges: High confidence (>=0.85), Medium (>=0.7), Low (>=0.5), Very low (<0.5)
+    - Actions: Analyze, Move to Suggested, Re-analyze
+    - Expandable details showing category, similar files count, document ID
+    - Checkbox selection for bulk operations
+  - Created OrphanedFilesList.tsx component:
+    - Renders list of OrphanedFileCard components
+    - Shows empty state when no orphaned files found
+    - Select all checkbox with indeterminate state support
+    - OrphanedFilesFilter: filter by all, with suggestion, needs analysis, high confidence, low confidence
+    - OrphanedFilesBulkActionsBar: Analyze All, Move All to Suggested, Clear selection
+  - Created MissingFileCard.tsx component:
+    - Displays missing file info: file name, category, current path (strikethrough), original path
+    - Shows accessibility badge: Missing (red) or Accessible (green)
+    - Shows location history when expanded with location type badges (Primary, Previous, Current)
+    - Actions: Get Original, Restore to Original, Update Path, Mark Inaccessible, Remove from DB
+    - Update Path shows inline form for entering new path
+    - Checkbox selection for bulk operations
+  - Created MissingFilesList.tsx component:
+    - Renders list of MissingFileCard components
+    - Shows empty state when no missing files found
+    - Select all checkbox with indeterminate state support
+    - MissingFilesFilter: filter by all, has original, no original, with optional category dropdown
+    - MissingFilesBulkActionsBar: Get Originals, Restore All, Mark Inaccessible, Remove All, Clear selection
+  - Updated components/index.ts to export all new components and types
+- Created comprehensive test suite in __tests__/orphaned-files-ui.test.tsx (76 tests) covering:
+  - OrphanedFileCard: rendering, badges, actions, selection, loading state, path clicks, details expansion
+  - OrphanedFilesFilter: all filters, active highlighting, count display
+  - OrphanedFilesBulkActionsBar: rendering, all actions, loading state
+  - OrphanedFilesList: empty state, file cards, select all, suggestion display, loading state
+  - MissingFileCard: rendering, badges, actions, location history, update path form
+  - MissingFilesFilter: all filters, category dropdown
+  - MissingFilesBulkActionsBar: rendering, all actions, loading state
+  - MissingFilesList: empty state, file cards, select all, original location display
+  - Component exports verification
+- All 752 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Build orphaned files UI" task as complete
+- Task completed successfully (Dashboard Phase 6: Orphaned Files UI complete!)
+
+
+- Integrated with existing systems for Dashboard Phase 6 (Orphaned Files)
+  - Created dashboard/lib/file-system-utils.ts utility module:
+    - SUPPORTED_EXTENSIONS constant synchronized with Python's organizer/content_analyzer.py (17 extensions)
+    - ADDITIONAL_SCAN_EXTENSIONS for media/archive files (9 extensions)
+    - ALL_SCAN_EXTENSIONS as union of both sets
+    - verifyFileAccessible() - mirrors organizer/post_verification.py verify_file_accessible()
+    - verifyFilesAccessible() - batch verification of multiple files
+    - scanFolderForFiles() - mirrors organizer/content_analyzer.py scan_folder_for_files()
+    - FileInfo, ScanFolderOptions, FileVerificationResult, VerificationSummary interfaces
+    - isProcessableExtension() - checks if file can be processed
+    - formatFileSize() - human-readable file size formatting
+    - getFileTypeCategory() - categorizes files (document, spreadsheet, image, video, etc.)
+    - generateVerificationSummary() - generates verification summary for multiple files
+  - Created dashboard/app/api/orphaned/analyze/route.ts endpoint:
+    - POST /api/orphaned/analyze - analyze orphaned file, get suggestions, optionally add to database
+    - Validates file path (absolute required)
+    - Uses verifyFileAccessible() from file-system-utils
+    - Uses suggestLocationForFileEnhanced() from supabase lib
+    - Computes SHA-256 hash when requested
+    - Can add file to documents table with location tracking
+    - Returns AnalyzedFileInfo with verification and suggestion details
+  - Created dashboard/app/api/orphaned/move/route.ts endpoint:
+    - POST /api/orphaned/move - move orphaned file to suggested/specified location
+    - Validates source and destination paths (absolute required)
+    - Uses verifyFileAccessible() for pre/post verification
+    - Creates destination directory if needed
+    - Falls back to copy+delete if rename fails (cross-filesystem)
+    - Updates database path if file is tracked
+  - Created dashboard/app/api/missing/restore/route.ts endpoint:
+    - POST /api/missing/restore - restore missing file to original location
+    - Queries document_locations table for original path history
+    - Supports custom path override
+    - Creates target directory if needed
+    - Updates database with new path and location history
+  - Updated dashboard/app/api/orphaned/route.ts:
+    - Replaced inline scanDirectory with scanFolderForFiles from file-system-utils
+    - Uses ALL_SCAN_EXTENSIONS constant for consistency
+    - Integrates with file-system-utils patterns
+  - Updated dashboard/app/api/missing/route.ts:
+    - Replaced inline verifyFileAccessible with import from file-system-utils
+    - Uses integrated pattern that mirrors Python organizer
+- Created 46 new tests in dashboard/__tests__/file-system-utils.test.ts covering:
+  - SUPPORTED_EXTENSIONS: all document, spreadsheet, presentation, image extensions
+  - ADDITIONAL_SCAN_EXTENSIONS: media, archive extensions
+  - ALL_SCAN_EXTENSIONS: union verification
+  - isProcessableExtension(): processable/non-processable, case insensitivity
+  - formatFileSize(): bytes, KB, MB, GB, TB formatting
+  - getFileTypeCategory(): all file type categories
+  - Type interfaces: FileVerificationResult, FileInfo, ScanFolderOptions, VerificationSummary
+  - Extension constants sync with Python organizer/content_analyzer.py
+- Created 18 new tests in dashboard/__tests__/orphaned-integration-api.test.ts covering:
+  - POST /api/orphaned/analyze validation: missing path, relative path, invalid JSON, non-string path
+  - POST /api/orphaned/move validation: missing paths, relative paths, invalid JSON, non-string paths
+  - POST /api/missing/restore validation: missing ID, invalid JSON, non-string ID
+  - POST /api/missing/restore: document not found, relative custom path, no original path in history
+- All 805 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Integrate with existing systems" task as complete
+- Task completed successfully (Dashboard Phase 6: System Integration complete!)
+
+
+- Added loading states and error handling for Dashboard Phase 7 (Polish & UX)
+  - Created dashboard/components/LoadingStates.tsx with comprehensive loading components:
+    - Spinner: Animated spinner with sm/md/lg sizes and accessible aria-label
+    - Skeleton: Placeholder component for text, rectangular, and circular variants
+    - LoadingText: Text with spinner for inline loading messages
+    - PageLoading: Full-page centered loading state
+    - StatCardSkeleton: Skeleton for StatCard components
+    - StatCardSkeletonGrid: Grid of stat card skeletons (configurable count)
+    - ChartSkeleton: Skeleton for chart components (configurable height)
+    - TableRowSkeleton: Single table row skeleton (configurable columns)
+    - TableSkeleton: Full table skeleton with header and rows
+    - CardSkeleton: Generic card skeleton for list items
+    - CardListSkeleton: List of card skeletons
+    - SearchResultSkeleton: Skeleton for search result cards
+    - SearchResultsSkeleton: List of search result skeletons
+    - EmptyFolderCardSkeleton: Skeleton for empty folder cards
+    - EmptyFolderListSkeleton: List of empty folder skeletons
+    - StatisticsPageSkeleton: Full statistics page skeleton
+    - BrowsePageSkeleton: Full browse page skeleton
+  - Created dashboard/components/ErrorDisplay.tsx with error handling components:
+    - ErrorDisplay: Main error component with title, message, retry, link options
+    - Supports three severity levels: error (red), warning (amber), info (blue)
+    - Retry button with disabled/loading state
+    - Optional link navigation
+    - Full page variant for page-level errors
+    - InlineError: Small error text for form fields
+    - NetworkError: Pre-configured network error message
+    - NotFoundError: Pre-configured not found message with customizable resource
+    - EmptyState: Empty state placeholder with optional icon and action
+    - AlertBanner: Dismissible alert banner for important messages
+  - Updated dashboard/components/index.ts to export all new components and types
+  - Updated dashboard/app/statistics/page.tsx:
+    - Replaced text loading with StatisticsPageSkeleton
+    - Replaced manual error div with ErrorDisplay component
+    - Added retry handler for error recovery
+    - Shows page header during loading for better UX
+  - Updated dashboard/app/browse/page.tsx:
+    - Replaced text loading with BrowsePageSkeleton
+    - Replaced manual error div with ErrorDisplay component
+  - Updated dashboard/app/search/page.tsx:
+    - Added SearchResultsSkeleton for loading state
+    - Replaced manual error div with ErrorDisplay component
+    - Used EmptyState for no results and initial state
+  - Updated dashboard/app/empty-folders/page.tsx:
+    - Added StatCardSkeleton grid for summary stats during loading
+    - Added EmptyFolderListSkeleton for folder list loading
+    - Replaced manual error div with ErrorDisplay component
+  - Created dashboard/__tests__/loading-error-states.test.tsx with 78 tests:
+    - Spinner: size variants, accessibility, animation
+    - Skeleton: variants, dimensions, styling
+    - LoadingText/PageLoading: text, spinner, styling
+    - Skeleton grids/lists: counts, structure
+    - ErrorDisplay: message, title, severity, retry, link, fullPage
+    - InlineError: message, styling
+    - NetworkError: message, retry
+    - NotFoundError: resource, link
+    - EmptyState: title, message, icon, action
+    - AlertBanner: message, severity, dismiss
+  - Updated existing tests for new loading behavior:
+    - dashboard/__tests__/statistics-page.test.tsx: check for skeleton elements
+    - dashboard/__tests__/empty-folders-page.test.tsx: check for skeleton elements
+- All 883 dashboard tests pass, TypeScript check passes, linting passes
+- Updated PRD.md to mark "Add loading states and error handling" task as complete
+- Task completed successfully (Dashboard Phase 7: Loading States & Error Handling complete!)
+
+## 2026-01-21
+
+### Implemented Responsive Design (Mobile-Friendly) for Dashboard
+
+#### Components Updated:
+
+1. **DocumentTable** (`dashboard/components/DocumentTable.tsx`)
+   - Added mobile card view that displays on screens < md (768px)
+   - Desktop table view hidden on mobile, shown on md+
+   - Mobile view includes:
+     - Sort dropdown with all sort options (Name, Category, Created, Path)
+     - Card-based layout for each document
+     - Truncated paths optimized for mobile screen width
+     - Category badges, dates, and metadata in compact layout
+   - Added `MobileSortButton` component for mobile sorting
+   - Added `DocumentCard` component for mobile card view
+   - Added `truncatePathMobile()` helper for shorter mobile paths
+
+2. **CategoryChart** (`dashboard/components/CategoryChart.tsx`)
+   - Separate mobile and desktop chart containers
+   - Mobile: Smaller margins (left: 80px vs 100px), smaller font sizes
+   - Dynamic height based on number of categories
+   - Desktop: Original sizing with h-80
+
+3. **DateDistributionChart** (`dashboard/components/DateDistributionChart.tsx`)
+   - Mobile view with h-48 height, angled X-axis labels
+   - Desktop view with h-64 height
+   - Smaller margins and font sizes on mobile
+
+4. **ContextBinChart** (`dashboard/components/ContextBinChart.tsx`)
+   - Mobile: Legend positioned below chart (horizontal layout)
+   - Desktop: Legend positioned to the right (vertical layout)
+   - Smaller pie chart on mobile (innerRadius: 40, outerRadius: 70)
+
+5. **SearchInput** (`dashboard/components/SearchInput.tsx`)
+   - Form stacks vertically on mobile (`flex-col sm:flex-row`)
+   - Submit button full-width on mobile (`w-full sm:w-auto`)
+   - Example queries horizontal scroll on mobile, wrap on desktop
+   - Added `whitespace-nowrap` and `flex-shrink-0` to example buttons
+
+6. **OrphanedFilesBulkActionsBar** (`dashboard/components/OrphanedFilesList.tsx`)
+   - Responsive layout with `flex-col sm:flex-row`
+   - Buttons wrap on mobile with `flex-wrap`
+   - Clear selection button full-width on mobile
+
+7. **BulkActionsBar (Empty Folders)** (`dashboard/components/EmptyFoldersList.tsx`)
+   - Same responsive patterns as OrphanedFilesBulkActionsBar
+   - Stacked layout on mobile, horizontal on desktop
+
+8. **OrphanedFileCard** (`dashboard/components/OrphanedFileCard.tsx`)
+   - Responsive padding (`p-3 sm:p-4`)
+   - Action buttons row on mobile (`flex-row sm:flex-col`)
+   - Smaller text sizes on mobile
+   - Better path truncation for mobile
+   - `break-all` for long document IDs
+
+9. **Root Layout** (`dashboard/app/layout.tsx`)
+   - Added viewport export with proper mobile configuration
+   - `width: "device-width"`, `initialScale: 1`, `maximumScale: 5`
+   - Added `antialiased` class to body
+
+#### Tests Added:
+- Created `dashboard/__tests__/responsive-design.test.tsx` with 25 tests:
+  - DocumentTable renders both mobile and desktop views
+  - Mobile sort dropdown functionality
+  - Mobile card view renders document info
+  - Clickable paths in mobile view
+  - Desktop table headers verification
+  - SearchInput responsive layout classes
+  - BulkActionsBar responsive layouts
+  - Chart components have mobile/desktop containers
+  - Layout viewport configuration verification
+
+#### Tests Updated:
+- `dashboard/__tests__/document-browser.test.tsx` - Updated to handle dual mobile/desktop rendering
+- `dashboard/__tests__/browse-page.test.tsx` - Updated to handle dual mobile/desktop rendering
+
+#### Responsive Breakpoints Used:
+- Mobile: Default (< 640px for `sm:`, < 768px for `md:`)
+- Tablet/Desktop: `sm:` (640px+), `md:` (768px+)
+
+All 908 tests pass, linting passes.
+Task completed successfully.
+
+## 2026-01-21
+- Implemented rotating example queries in search placeholder (Phase 7)
+  - Updated SearchInput component to include useEffect hook for rotating placeholder
+  - Added placeholderIndex state to track current example query
+  - Placeholder now cycles through EXAMPLE_QUERIES every 4 seconds
+  - Placeholder format: `Try: "Show me a file that is a verizon bill from 2024?"`
+  - Users can see different example queries while the input is empty
+- Added 3 new tests in search-components.test.tsx:
+  - "has placeholder text with example query" - verifies initial placeholder format
+  - "rotates placeholder through example queries" - tests timer-based rotation
+  - "cycles placeholder back to first example after last one" - tests cycling behavior
+- All 910 tests pass, linting passes
+- Task completed successfully
+
+## 2026-01-21
+- Added tooltips and help text to dashboard components (Phase 7)
+  - Created `/dashboard/components/Tooltip.tsx` with:
+    - Reusable `Tooltip` component supporting top/bottom/left/right positioning
+    - Auto-positioning to stay within viewport
+    - Customizable delay, maxWidth, and styling
+    - `HelpTooltip` component - info icon with tooltip for help text
+    - `HELP_TEXT` constant object with consistent help messages
+  - Updated `StatCard.tsx`:
+    - Added optional `helpText` prop for displaying tooltips
+  - Updated `StatisticsFilter.tsx`:
+    - Added help tooltips to Category and Start Year filters
+  - Updated `SearchInput.tsx`:
+    - Added help tooltip to example queries section
+  - Updated `OrphanedFileCard.tsx`:
+    - Added tooltips to confidence badges explaining score ranges
+    - Added tooltips to match type badges (database_history, similar_files, etc.)
+  - Updated `DocumentTable.tsx`:
+    - Added tooltip to path buttons explaining "click to open in Finder"
+  - Updated `OrphanedFilesList.tsx`:
+    - Added help tooltip for bulk select checkbox
+  - Updated `app/statistics/page.tsx`:
+    - Added help tooltips to all 4 stat cards (Total Documents, Categories, Years, Context Bins)
+  - Updated `app/search/page.tsx`:
+    - Added help tooltip to Natural Language Search heading
+  - Updated `components/index.ts`:
+    - Exported Tooltip, HelpTooltip, and HELP_TEXT
+- Created comprehensive tests in `__tests__/tooltip.test.tsx`:
+  - 34 tests covering:
+    - Tooltip visibility on hover with delay
+    - Mouse leave hides tooltip
+    - Delay cancellation behavior
+    - Keyboard focus/blur accessibility
+    - All position variants (top, bottom, left, right)
+    - Custom maxWidth and className
+    - Complex content rendering
+    - HelpTooltip rendering and interactions
+    - HELP_TEXT constant validation
+    - Multiple tooltips working independently
+- Updated existing tests in `__tests__/statistics-filter.test.tsx`:
+  - Changed selectors from `getByLabelText` to `getElementById` to handle label structure changes
+- All 944 tests pass, linting passes
+- Task completed successfully
+
+## 2026-01-21
+- Completed Phase 7: Optimize queries for performance
+  - Added statistics caching with 30-second TTL to reduce redundant database calls
+  - Implemented clearStatisticsCache() function for cache invalidation
+  - Optimized getStatistics() to use a single database query instead of 3 separate queries
+    - Previously: 3 separate queries for categories, date distribution, and context bins
+    - Now: 1 query fetching only ai_category, key_dates, folder_hierarchy columns
+    - Statistics computed client-side from single result set
+  - Optimized getDocuments() with two-path approach:
+    - Server-side pagination (using .range()) when no array column filters needed
+    - Client-side filtering for context bin and date range filters (array columns)
+    - Fetches minimal columns for filtering, then full documents only for current page
+  - Optimized getMissingFiles() to use single query with embedded document_locations relation
+    - Previously: 2 queries (documents, then locations)
+    - Now: 1 joined query with document_locations embedded
+  - Optimized getEmptyFolders() to use single query with embedded documents relation
+    - Previously: 2 queries (locations, then documents)
+    - Now: 1 joined query with documents embedded
+  - Added tests for performance optimizations:
+    - Statistics cache tests (caching, bypass, clear)
+    - Optimized statistics query test
+    - Server-side pagination tests
+    - Client-side filtering tests
+- All 951 tests pass
+- Linting passes
+- Updated PRD to mark task complete
+- [✓] 2026-02-22 03:04 - Add `GET /api/agents` endpoint — returns all known agents with status
+- [✓] 2026-02-22 03:28 - Add `GET /api/agents` endpoint — returns all known agents with status
+
+## 2026-03-03
+- Created `LLMClient` class wrapping Ollama REST API (Phase 16.1)
+  - New file: `organizer/llm_client.py`
+  - `LLMClientConfig` dataclass for configuration (base_url, timeouts, retries)
+  - `LLMResponse` dataclass for typed responses (text, model_used, duration_ms, tokens_eval, success, error)
+  - `LLMClient` class with:
+    - `generate()`: Main text generation method with timeout, temperature, max_tokens support
+    - `is_healthy()`: Health check with 60s caching
+    - `list_models()`: List available Ollama models
+    - `is_model_loaded()`: Check if specific model is available
+    - Connection pooling via `requests.Session` with retry logic
+    - Graceful error handling for timeout, connection errors, HTTP errors
+    - Context manager protocol (with statement support)
+- New test file: `tests/test_llm_client.py`
+  - 21 tests covering:
+    - LLMResponse dataclass validation
+    - LLMClientConfig defaults and custom values
+    - Successful generation with metadata
+    - Custom temperature/max_tokens parameters
+    - HTTP error handling
+    - Timeout handling
+    - Connection error handling
+    - Health check caching
+    - Model listing and checking
+    - Context manager protocol
+- All 831 tests pass
+- Linting passes (ruff)
+- PRD updated to mark task complete
+
+## 2026-03-03 (continued)
+- Created `ModelRouter` class for multi-LLM task routing (Phase 16.1)
+  - New file: `organizer/model_router.py`
+  - `ModelTier` enum: FAST, SMART, CLOUD for tiered model selection
+  - `TaskType` enum: CLASSIFY, VALIDATE, ANALYZE, ENRICH, GENERATE for task categorization
+  - `Complexity` enum: LOW, MEDIUM, HIGH for task complexity levels
+  - `TaskProfile` dataclass: task_type, complexity, content_length
+  - `ModelConfig` dataclass: fast, smart, cloud model names + escalation_threshold
+  - `DEFAULT_TASK_ROUTING` table: maps task type + complexity to initial tier
+  - `ModelRouter` class with:
+    - `__init__()`: accepts LLMClient, optional ModelConfig or config_path
+    - `_load_config_from_file()`: loads model settings from agent_config.json
+    - `_get_available_models()`: cached model availability check via LLMClient
+    - `_get_model_for_tier()`: returns configured model for tier
+    - `_is_model_available()`: checks if model is available in Ollama
+    - `get_initial_tier()`: determines starting tier from TaskProfile
+    - `select_model()`: selects best available model with fallback chain
+    - `get_escalation_model()`: returns next tier model for low-confidence escalation
+    - `get_fallback_model()`: returns lower tier model when current unavailable
+    - `should_escalate()`: checks if confidence is below escalation threshold
+    - `clear_cache()`: clears model availability cache
+  - Long content (>10k chars) automatically upgrades from FAST to SMART tier
+  - Cloud models only used when `cloud_enabled=True` in config
+  - Returns None when no models available (caller should use keyword fallback)
+- New test file: `tests/test_model_router.py`
+  - 41 tests covering:
+    - ModelTier, TaskType, Complexity enum values
+    - TaskProfile dataclass creation and defaults
+    - ModelConfig defaults and custom values
+    - ModelRouter initialization (default, custom config, file config)
+    - Config file loading (valid, missing, invalid JSON)
+    - Initial tier selection for all task types and complexities
+    - Long content upgrade to higher tier
+    - Model selection with availability fallback
+    - Cloud model enable/disable behavior
+    - Model availability caching and force_refresh bypass
+    - Escalation from FAST→SMART→CLOUD
+    - Escalation skipping unavailable tiers
+    - should_escalate threshold checks
+    - Fallback from CLOUD→SMART→FAST
+    - Cache clearing
+- All 872 tests pass
+- Linting passes (ruff)
+- PRD updated to mark task complete
+
+## 2026-03-03
+- Implemented confidence-based escalation in `organizer/model_router.py` (Phase 16.1)
+  - Added `EscalationRecord` dataclass to track individual escalation steps (model, confidence, duration_ms, was_escalated)
+  - Added `EscalationResult` dataclass to track final escalation result (text, final_model, final_confidence, total_duration_ms, success, error, escalation_chain, used_keyword_fallback)
+  - Added `was_escalated` and `escalation_count` properties to EscalationResult for easy introspection
+  - Added `ConfidenceExtractor` abstract base class for extracting confidence from LLM responses
+  - Added `DefaultConfidenceExtractor` that parses JSON responses looking for `{"confidence": 0.X}` pattern
+  - Added `generate_with_escalation()` method to ModelRouter that:
+    - Generates text using initial model based on TaskProfile
+    - Extracts confidence from response using provided or default extractor
+    - Auto-escalates to higher tier when confidence < escalation_threshold (default 0.75)
+    - Logs each escalation step with model, confidence, duration, and escalation decision
+    - Follows escalation chain: T1 Fast → T2 Smart → T3 Cloud → keyword fallback
+    - Prevents infinite loops by tracking tried models
+    - Returns EscalationResult with full escalation chain for observability
+- Created 21 new tests in `tests/test_model_router.py` covering:
+  - EscalationRecord dataclass creation
+  - EscalationResult dataclass creation and properties (was_escalated, escalation_count)
+  - DefaultConfidenceExtractor JSON parsing, edge cases, and clamping
+  - generate_with_escalation: no escalation when confidence high
+  - generate_with_escalation: escalation from FAST to SMART when confidence low
+  - generate_with_escalation: full escalation chain FAST → SMART → CLOUD
+  - generate_with_escalation: returns result at highest tier even if confidence still low
+  - generate_with_escalation: keyword fallback when no models available
+  - generate_with_escalation: keyword fallback when all models fail
+  - generate_with_escalation: escalation chain logging with model, confidence, duration
+  - generate_with_escalation: custom confidence extractor support
+  - generate_with_escalation: prevents infinite escalation loops
+  - generate_with_escalation: passes optional parameters (temperature, max_tokens, timeout_s)
+- All 893 tests pass, linting passes
+- Task completed successfully
+
+## 2026-03-03 (continued)
+- Implemented graceful degradation chain in `organizer/model_router.py` (Phase 16.1)
+  - Added `DegradationResult` dataclass to track degradation state (ollama_available, available_models, degraded_to_keywords, reason)
+  - Added `is_ollama_available()` method to ModelRouter:
+    - Checks Ollama server health via LLMClient
+    - Caches health state for 60s to avoid hammering Ollama on every call
+    - Supports force_refresh to bypass cache
+  - Added `check_degradation_state()` method:
+    - Determines whether Ollama is available and what models are accessible
+    - Returns detailed state: Ollama up/down, loaded models, whether using keyword fallback, human-readable reason
+    - Checks if configured models (fast/smart/cloud) are among loaded models
+  - Added `should_use_keyword_fallback()` convenience method:
+    - Returns True when system should fall back to keyword/rule-based logic
+    - Used by agents to decide LLM vs keyword path
+  - Updated `select_model()` to check Ollama health first:
+    - If Ollama is down, returns None immediately (no model query attempt)
+    - Graceful degradation chain: preferred tier → lower tiers → keyword rules
+  - Updated `generate_with_escalation()` to integrate graceful degradation:
+    - Checks degradation state before attempting any LLM calls
+    - If Ollama is down or no models available, returns immediately with used_keyword_fallback=True
+    - Error message explains reason (Ollama not reachable, no models loaded, configured models unavailable)
+  - Updated `clear_cache()` to clear both model availability and health caches
+  - Added `_ollama_health_cache` and `_health_cache_ttl_s` attributes for health caching
+- Added 21 new tests in `tests/test_model_router.py` covering:
+  - `DegradationResult` dataclass creation for normal and degraded states
+  - `is_ollama_available()` when healthy, unhealthy, with caching, with force_refresh
+  - `check_degradation_state()` for: Ollama down, no models loaded, configured models unavailable, models available
+  - `should_use_keyword_fallback()` when Ollama down and when models available
+  - `select_model()` returns None when Ollama down, checks health before listing models
+  - `generate_with_escalation()` graceful degradation for Ollama down and no models
+  - `clear_cache()` clears both model and health caches
+  - Graceful degradation chain: SMART → FAST, CLOUD → SMART → FAST
+- Updated existing tests to mock `is_healthy()` where needed
+- All 912 tests pass
+- Linting passes (ruff)
+- PRD updated to mark task complete
+
+## 2026-03-03
+- Created `organizer/prompt_registry.py` with prompt management system (Phase 16.1)
+  - `PromptMetadata` dataclass: name, version, last_modified, description, path
+  - `PromptTemplate` dataclass: metadata, content, variables list
+  - `PromptNotFoundError` exception with search paths
+  - `PromptRegistry` class:
+    - Loads prompts from `.organizer/prompts/` directory
+    - Parses header comments for version, description, last-modified date
+    - Variable substitution (`{filename}`, `{bins}`, `{content}`) preserving JSON braces
+    - Prompt caching with reload() to clear cache
+    - Auto-creates default prompts on first run if directory is missing
+    - `get()`: load prompt by name, with caching
+    - `render()`: render prompt with variable substitution
+    - `list_prompts()`: list all available prompts with metadata
+    - `has_prompt()`: check if prompt exists
+    - `get_prompt_info()`: get detailed info about a prompt
+    - `save_prompt()`: save a new or updated prompt to disk
+  - 8 default prompts created on first run:
+    - `classify_file`: classify file into category
+    - `validate_placement`: validate file location
+    - `suggest_subfolder`: suggest subfolder structure
+    - `assess_drift`: determine if file move was intentional/accidental
+    - `detect_domain`: detect organizational domain from structure
+    - `generate_rule`: generate routing rule from folder contents
+    - `extract_metadata`: extract structured metadata from content
+    - `narrate_structure`: summarize organizational strategy
+  - Convenience functions: `create_prompt_registry()`, `get_default_prompts()`
+- Created `tests/test_prompt_registry.py` with 37 unit tests covering:
+  - PromptMetadata and PromptTemplate dataclasses
+  - PromptRegistry initialization (creates directory, default prompts)
+  - Prompt loading, caching, and reloading
+  - Variable extraction (ignores JSON double-braces)
+  - Rendering with variable substitution
+  - Missing variable detection
+  - Prompt listing and info retrieval
+  - Prompt saving and persistence
+  - Header parsing (version, description, last-modified)
+  - PromptNotFoundError with search paths
+  - Default prompts validation
+- Updated `organizer/__init__.py` to export prompt_registry classes and functions
+- All 949 tests pass
+- Linting passes (ruff)
+- PRD Phase 16.1 prompt management system task marked complete
+
+## 2026-03-03
+- Replaced keyword matching in `InboxProcessor._classify()` with LLM-first classification (Phase 16.2)
+  - Added `LLMClassificationResult` dataclass: bin, subcategory, confidence, reason, model_used, was_escalated, used_keyword_fallback
+  - Updated `InboxRouting` dataclass with LLM fields: reason, model_used, was_escalated, used_keyword_fallback
+  - Updated `InboxProcessor.__init__()` to accept optional llm_client, model_router, prompt_registry
+  - Added `_build_available_bins()` method to extract unique bins from routing rules for LLM prompts
+  - Added `_is_llm_available()` method to check if LLM classification is available
+  - Rewrote `_classify()` method with LLM-first strategy:
+    - Primary model: T1 Fast for high-volume classification (~3.7s per file)
+    - Uses `classify_file` prompt template with filename + content preview + available bins
+    - Escalation: if T1 confidence < 0.75, auto-escalates to T2 Smart via ModelRouter
+    - Graceful degradation: falls back to keyword matching if LLM unavailable
+  - Added `_classify_with_llm()` method for LLM classification with TaskProfile and escalation
+  - Added `_parse_classification_response()` method to parse JSON from LLM response
+  - Refactored keyword matching into `_classify_with_keywords()` for fallback use
+  - Updated `organizer/__init__.py` to export InboxProcessor classes and constants
+- Added 21 new tests in `tests/test_organizer_inbox.py` covering:
+  - TestLLMClassificationResult: dataclass creation, escalation tracking
+  - TestInboxRoutingWithLLMFields: LLM fields in routing, default values
+  - TestInboxProcessorLLMIntegration: constructor with LLM components, bin building, availability checks
+  - TestKeywordFallback: keyword fallback marking on routing, unmatched files
+  - TestLLMClassification: LLM success path, escalation tracking, fallback on failure, invalid JSON handling
+  - TestParseClassificationResponse: valid JSON parsing, confidence clamping, default values, error handling
+- Fixed unused import in `organizer/continuous_agent.py`
+- All 970 tests pass
+- Linting passes (ruff)
+- PRD Phase 16.2 first task marked complete
+
+## 2026-03-03
+- Implemented A/B comparison logging for LLM vs keyword classification (Phase 16.2)
+  - Added `KeywordClassificationResult` dataclass: bin, confidence, matched_keywords
+  - Added `ClassificationComparison` dataclass: filename, timestamp, llm_result, keyword_result, agreed, winner, llm_available
+  - Added `ComparisonLogger` class for managing A/B comparison logs:
+    - `start_cycle(cycle_id)`: Initialize a new comparison cycle
+    - `add_comparison(comparison)`: Add comparison to current cycle
+    - `get_comparisons()`: Get all comparisons for current cycle
+    - `get_agreement_rate()`: Calculate LLM vs keyword agreement rate (0.0-1.0)
+    - `save()`: Persist comparisons to `.organizer/agent/logs/llm_comparison_{cycle_id}.json`
+    - `load(log_path)`: Load comparisons from saved log file
+    - Log includes summary stats: total_comparisons, llm_available_count, agreement_rate
+  - Updated `InboxProcessor.__init__()` to accept optional `comparison_logger` and `enable_ab_logging` parameters
+  - Rewrote `_classify()` to always run both LLM and keyword classification when A/B logging enabled:
+    - Always gets keyword result first for comparison baseline
+    - Tries LLM classification when available
+    - Logs comparison with `_log_comparison()` method
+    - Comparison tracks: agreed status (same bin), winner (llm/keyword/none), llm_available
+  - Added `_log_comparison()` method: serializes results, determines agreement, logs to ComparisonLogger
+  - Agreement detection handles subcategory matching (LLM with subcat matches keyword parent bin)
+  - Updated `organizer/__init__.py` to export new classes: ClassificationComparison, ComparisonLogger, KeywordClassificationResult
+- Added 23 new tests in `tests/test_organizer_inbox.py` covering:
+  - TestKeywordClassificationResult: dataclass creation, empty keywords
+  - TestClassificationComparison: creation with all fields, LLM unavailable case
+  - TestComparisonLogger: init, start_cycle, add_comparison, get_comparisons, agreement_rate (no LLM, full, partial), save/load, summary stats
+  - TestInboxProcessorABLogging: accepts comparison_logger, disabled by default, keyword-only logging, LLM success logging, disagreement detection, disabled logging, LLM failure fallback
+- All 993 tests pass
+- Linting passes (ruff)
+- PRD Phase 16.2 A/B comparison logging task marked complete
+
+## 2026-03-03
+- Implemented locked bins in taxonomy for Phase 12 (Scatter-Agent)
+  - Created `organizer/taxonomy.py` module for taxonomy management
+    - `DEFAULT_ROOT_BINS`: 8 locked root bins (VA, Finances Bin, Family Bin, Legal Bin, Personal Bin, Work Bin, Archive, Needs-Review)
+    - `TaxonomyBin` dataclass: name, locked, description, subcategories
+    - `Taxonomy` class with bin management methods:
+      - `is_bin_locked(bin_name)`: check if bin is locked
+      - `is_root_bin(path)`: check if path starts with a root bin
+      - `get_root_bin(path)`: extract root bin name from path
+      - `can_rename_bin/can_move_bin/can_merge_bin`: check if operations allowed
+      - `add_subcategory(bin_name, subcategory)`: add subcategory to bin (works on locked bins)
+    - `create_default_taxonomy()`: create taxonomy with all default locked bins
+    - `load_taxonomy(path)`: load from JSON file, return default if not found
+    - `save_taxonomy(taxonomy, path)`: save to JSON file with parent dir creation
+    - `ensure_taxonomy_exists(path)`: create default file if missing
+    - `LockedBinError`: exception for attempts to modify locked bins
+    - `validate_bin_operation(taxonomy, bin_name, operation)`: raises LockedBinError if bin is locked
+  - Updated `organizer/__init__.py` to export taxonomy module exports
+  - Created `tests/test_taxonomy.py` with 52 unit tests covering:
+    - TestTaxonomyBin: dataclass creation, to_dict, from_dict
+    - TestTaxonomy: locked status, root bin detection, can_rename/move/merge, subcategories
+    - TestDefaultRootBins: all locked, expected bins exist, descriptions, subcategories
+    - TestCreateDefaultTaxonomy: creates all bins, all locked, subcategories preserved
+    - TestLoadSaveTaxonomy: save/load, directories created, nonexistent returns default
+    - TestLockedBinError: error message format, attributes
+    - TestValidateBinOperation: raises for locked bins, passes for unlocked
+    - TestTaxonomyIntegration: roundtrip data preservation, subcategory persistence
+- All 1045 tests pass
+- Linting passes (ruff)
+- PRD Phase 12 first task marked complete
+
+## 2026-03-03
+- Created `organizer/scatter_detector.py` module (Phase 12 Scatter-Agent, second task)
+  - Added `ScatterViolation` dataclass: file_path, current_bin, expected_bin, confidence, reason, model_used, suggested_subpath, used_keyword_fallback
+  - Added `ScatterDetectionResult` dataclass: violations list, files_scanned, files_in_correct_bin, errors, model_used, used_keyword_fallback
+  - Added `PathPreservationResult` dataclass: suggested_subpath, reason, model_used, confidence
+  - Added `ScatterDetector` class with LLM-native detection:
+    - `__init__()`: accepts llm_client, model_router, taxonomy, prompt_registry, escalation_threshold
+    - `_is_llm_available()`: checks if LLM classification is available
+    - `_get_file_content_preview()`: reads first N chars of text files, handles binary files
+    - `_build_bins_list()`: formats taxonomy bins for LLM prompts
+    - `_validate_with_llm()`: validates file placement using T1 Fast with escalation to T2 Smart
+    - `_parse_validation_response()`: parses JSON from LLM validation response
+    - `_validate_with_keywords()`: keyword fallback using category_mapper when LLM unavailable
+    - `_get_current_bin()`: extracts root bin from file path
+    - `suggest_subpath()`: LLM-powered path preservation (year/agency hierarchy)
+    - `_suggest_subpath_keywords()`: keyword-based year extraction fallback
+    - `validate_file()`: validates single file, uses LLM when available else keywords
+    - `detect_scatter()`: scans directory for scatter violations with max_files and extension filters
+  - Added convenience functions: `detect_scatter()`, `load_scatter_report()`, `save_scatter_report()`
+  - Graceful degradation: falls back to category mapper + filename signals when LLM unavailable
+  - T1 Fast for binary placement validation, escalation to T2 Smart when confidence < threshold
+  - Locked bin protection: respects taxonomy locked bins
+- Created `tests/test_scatter_detector.py` with 54 unit tests covering:
+  - TestScatterViolation: creation, all fields, to_dict, from_dict, missing fields
+  - TestScatterDetectionResult: empty, with violations, to_dict
+  - TestPathPreservationResult: creation, all fields
+  - TestScatterDetector: init, LLM availability checks, current bin detection, bins list building, file content preview, validation response parsing, keyword validation, subpath suggestions, scatter detection (empty dir, nonexistent, file path, max_files, extension filter, hidden files)
+  - TestScatterDetectorLLMIntegration: LLM validation success, belongs_here, failure, validate_file uses LLM, fallback to keywords, suggest_subpath LLM and fallback
+  - TestConvenienceFunctions: detect_scatter function, with taxonomy, save/load report
+  - TestLockedBinProtection: locked bins in taxonomy, detector respects locked bins
+  - TestParseSubpathResponse: valid response, invalid response, embedded JSON
+- Updated `organizer/__init__.py` to export scatter_detector classes and functions
+- All 1099 tests pass
+- Linting passes (ruff)
+- PRD Phase 12 scatter_detector.py task marked complete
+
+## 2026-03-03
+- Added resync_with_taxonomy() method to CanonicalRegistry class (Phase 12: Scatter-Agent)
+  - Cross-checks registry entries against taxonomy bins
+  - Removes orphaned entries (in registry but not matching any taxonomy bin/subcategory)
+  - Adds missing entries (taxonomy bins/subcategories not in registry)
+  - Returns dict with 'removed' and 'added' lists for tracking changes
+  - Helper method _has_similar_entry() for fuzzy matching checks
+- Added 11 new tests in tests/test_canonical_registry.py:
+  - test_resync_empty_registry
+  - test_resync_removes_orphaned_entries
+  - test_resync_keeps_valid_entries
+  - test_resync_adds_missing_entries
+  - test_resync_without_base_path
+  - test_resync_idempotent
+  - test_resync_with_similar_folder_names
+  - test_resync_empty_taxonomy
+  - test_resync_taxonomy_with_no_subcategories
+  - test_resync_saves_changes
+  - test_resync_returns_correct_counts
+- Also marked 'LLM-powered path preservation' as complete (was already implemented in scatter_detector.py)
+- All 36 tests for canonical_registry pass
+- All 90 tests for canonical_registry + scatter_detector pass
+- Linting passes
+

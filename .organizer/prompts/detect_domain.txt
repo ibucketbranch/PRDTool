@@ -1,0 +1,15 @@
+# Prompt: detect_domain
+# Version: 1.0.0
+# Description: Detect the organizational domain from folder structure.
+
+Given this folder structure (top 3 levels with file counts and sample filenames):
+{structure_json}
+
+What domain is this? Options: personal, medical, legal, automotive, creative, engineering, generic_business.
+
+Reply with JSON:
+{{
+    "domain": "detected_domain",
+    "confidence": 0.0 to 1.0,
+    "evidence": ["signal1", "signal2"]
+}}

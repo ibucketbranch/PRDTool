@@ -1,0 +1,16 @@
+# Prompt: generate_rule
+# Version: 1.0.0
+# Description: Generate a routing rule from observed folder contents.
+
+Folder '{folder_name}' contains these files:
+{filename_list}
+
+What routing rule describes what belongs here?
+
+Reply with JSON:
+{{
+    "pattern": "keyword or regex pattern",
+    "destination": "folder path",
+    "confidence": 0.0 to 1.0,
+    "reasoning": "why this rule applies"
+}}
