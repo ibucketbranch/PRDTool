@@ -2722,3 +2722,22 @@ Task completed successfully.
 - All 52 tests pass
 - Linting passes (fixed unused import)
 - PRD Phase 12 task "Create `organizer/scatter_detector.py` module (LLM-native)" marked complete
+
+## 2026-03-03
+- Implemented LLM-powered path preservation integration for scatter violations (Phase 12)
+  - Updated ScatterDetector.validate_file() to call suggest_subpath when creating violations
+  - Violations now include suggested_subpath field populated by T2 Smart model
+  - When LLM is unavailable, fallback uses year extraction and agency pattern detection
+  - Updated existing escalation tests to account for path preservation LLM calls
+  - Added new tests in TestPathPreservationIntegration:
+    - test_violation_includes_suggested_subpath_year
+    - test_violation_includes_suggested_subpath_with_llm
+    - test_violation_subpath_with_keyword_fallback
+    - test_violation_subpath_with_agency
+    - test_violation_subpath_year_takes_precedence
+    - test_detect_scatter_populates_subpaths
+    - test_llm_path_preservation_called_with_correct_bin
+- All 59 scatter detector tests pass
+- Linting passes
+- Task completed successfully
+

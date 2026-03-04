@@ -450,7 +450,7 @@ A web-based dashboard that:
     `"File '{filename}' is in '{current_path}'. Based on its name and content preview, does it belong in '{current_bin}' or should it be in '{expected_bin}'? Reply JSON {belongs_here: bool, correct_bin, confidence, reason}"`
   - Escalation: if T1 confidence < 0.75, re-evaluate with **T2 Smart** using full content
   - Graceful degradation: if LLM unavailable, fall back to category mapper + filename signals
-- [ ] LLM-powered path preservation
+- [x] LLM-powered path preservation
   - When proposing a scatter fix, ask **T2 Smart**:
     `"What subfolder structure should '{filename}' have inside '{target_bin}'? Preserve year/agency hierarchy. Reply JSON {suggested_subpath, reason}"`
   - Never flatten: `2011/IRS/1040.pdf` → `Finances Bin/Taxes/Federal/2011/1040.pdf`

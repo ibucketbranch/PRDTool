@@ -558,20 +558,25 @@ Reply with JSON:
                     # LLM says it's fine, no violation
                     return None
 
-                # LLM confirms violation
+                # LLM confirms violation - get path preservation suggestion
+                expected_bin = llm_correct_bin if llm_correct_bin else kw_expected_bin
+                path_result = self.suggest_subpath(file_path, expected_bin)
+
                 return ScatterViolation(
                     file_path=file_path,
                     current_bin=current_bin,
-                    expected_bin=llm_correct_bin if llm_correct_bin else kw_expected_bin,
+                    expected_bin=expected_bin,
                     confidence=llm_confidence,
                     reason=llm_reason,
                     model_used=model_used,
-                    suggested_subpath="",
+                    suggested_subpath=path_result.suggested_subpath,
                     used_keyword_fallback=False,
                 )
             # LLM failed, fall through to keyword-based result
 
-        # Use keyword-based result
+        # Use keyword-based result - also get path preservation suggestion
+        path_result = self.suggest_subpath(file_path, kw_expected_bin)
+
         return ScatterViolation(
             file_path=file_path,
             current_bin=current_bin,
@@ -579,7 +584,7 @@ Reply with JSON:
             confidence=kw_confidence,
             reason=f"File contains keywords suggesting it belongs in {kw_expected_bin}",
             model_used="",
-            suggested_subpath="",
+            suggested_subpath=path_result.suggested_subpath,
             used_keyword_fallback=True,
         )
 

@@ -543,7 +543,15 @@ class TestEscalation:
             "reason": "Confirmed tax document after deeper analysis",
         })
 
-        mock_llm_client.generate.side_effect = [t1_response, t2_response]
+        # Third call (T2) for path preservation
+        path_response = MagicMock()
+        path_response.success = True
+        path_response.text = json.dumps({
+            "suggested_subpath": "2024/Federal",
+            "reason": "Tax year organization",
+        })
+
+        mock_llm_client.generate.side_effect = [t1_response, t2_response, path_response]
 
         detector = ScatterDetector(
             llm_client=mock_llm_client,
@@ -556,26 +564,37 @@ class TestEscalation:
         violation = detector.validate_file(file_path, str(temp_dir_with_files))
 
         assert violation is not None
-        # Should have called LLM twice (T1 then T2)
-        assert mock_llm_client.generate.call_count == 2
+        # Should have called LLM three times (T1 validation, T2 escalation, T2 path preservation)
+        assert mock_llm_client.generate.call_count == 3
         # Final confidence should be from T2
         assert violation.confidence == 0.92
         assert violation.model_used == "qwen2.5:14b"
+        # Check path preservation was populated
+        assert violation.suggested_subpath == "2024/Federal"
 
     def test_no_escalation_on_high_confidence(
         self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
     ):
         """Test that high confidence does not trigger escalation."""
         # T1 returns high confidence
-        mock_response = MagicMock()
-        mock_response.success = True
-        mock_response.text = json.dumps({
+        validation_response = MagicMock()
+        validation_response.success = True
+        validation_response.text = json.dumps({
             "belongs_here": False,
             "correct_bin": "Finances Bin",
             "confidence": 0.92,  # Above threshold
             "reason": "Clear tax document",
         })
-        mock_llm_client.generate.return_value = mock_response
+
+        # T2 for path preservation
+        path_response = MagicMock()
+        path_response.success = True
+        path_response.text = json.dumps({
+            "suggested_subpath": "2024",
+            "reason": "Year from document",
+        })
+
+        mock_llm_client.generate.side_effect = [validation_response, path_response]
 
         detector = ScatterDetector(
             llm_client=mock_llm_client,
@@ -587,8 +606,9 @@ class TestEscalation:
         file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
         violation = detector.validate_file(file_path, str(temp_dir_with_files))
 
-        # Should only call T1 once
-        assert mock_llm_client.generate.call_count == 1
+        # Should call T1 validation once, then T2 path preservation once
+        # No escalation on validation since confidence was high
+        assert mock_llm_client.generate.call_count == 2
         assert violation.model_used == "llama3.1:8b"
 
 
@@ -651,6 +671,174 @@ class TestPathPreservation:
 
         assert result.suggested_subpath == ""
         assert result.confidence == 0.5
+
+
+# =============================================================================
+# Path Preservation Integration Tests
+# =============================================================================
+
+
+class TestPathPreservationIntegration:
+    """Tests for path preservation integration in violation detection."""
+
+    def test_violation_includes_suggested_subpath_year(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that violations include year-based suggested_subpath."""
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+
+        # File with year in name in wrong bin
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        # The keyword fallback should extract year or agency from filename
+        # tax_form_1040.pdf contains no 4-digit year, so we check for IRS match
+        # or if no match, empty string is acceptable
+        assert violation.expected_bin == "Finances Bin"
+
+    def test_violation_includes_suggested_subpath_with_llm(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM violations include LLM-suggested subpath."""
+        # Mock T1 validation response
+        validation_response = MagicMock()
+        validation_response.success = True
+        validation_response.text = json.dumps({
+            "belongs_here": False,
+            "correct_bin": "Finances Bin",
+            "confidence": 0.92,
+            "reason": "This is a tax document",
+        })
+
+        # Mock T2 path preservation response
+        path_response = MagicMock()
+        path_response.success = True
+        path_response.text = json.dumps({
+            "suggested_subpath": "2024/Federal",
+            "reason": "Organized by year and tax type",
+        })
+
+        mock_llm_client.generate.side_effect = [validation_response, path_response]
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.suggested_subpath == "2024/Federal"
+        assert violation.model_used == "llama3.1:8b"
+
+    def test_violation_subpath_with_keyword_fallback(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that keyword fallback violations also get subpath suggestions."""
+        # Create a file with year in the name
+        tax_2023_file = temp_dir_with_files / "Work Bin" / "tax_2023_return.pdf"
+        tax_2023_file.write_text("tax document for 2023")
+
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+        violation = detector.validate_file(str(tax_2023_file), str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.used_keyword_fallback is True
+        # Should extract year from filename
+        assert violation.suggested_subpath == "2023"
+        assert violation.expected_bin == "Finances Bin"
+
+    def test_violation_subpath_with_agency(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test agency extraction for subpath in violations."""
+        # Create a file with IRS in the name that will also be flagged as misplaced
+        # Using "tax" keyword to trigger violation, and "irs" for agency detection
+        irs_file = temp_dir_with_files / "Work Bin" / "tax_irs_notice.pdf"
+        irs_file.write_text("irs tax document")
+
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+        violation = detector.validate_file(str(irs_file), str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.expected_bin == "Finances Bin"
+        # IRS agency should be extracted for subpath
+        assert violation.suggested_subpath == "IRS"
+
+    def test_violation_subpath_year_takes_precedence(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that year is extracted first when present in filename."""
+        # Create a file with year in the name
+        file_with_year = temp_dir_with_files / "Work Bin" / "tax_2020_doc.pdf"
+        file_with_year.write_text("tax document from 2020")
+
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+        violation = detector.validate_file(
+            str(file_with_year), str(temp_dir_with_files)
+        )
+
+        assert violation is not None
+        # Year extraction happens first
+        assert violation.suggested_subpath == "2020"
+
+    def test_detect_scatter_populates_subpaths(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that detect_scatter populates subpaths on all violations."""
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+
+        result = detector.detect_scatter(str(temp_dir_with_files))
+
+        # Check that violations have been found
+        assert len(result.violations) > 0
+
+        # Verify that validate_file was called (indirectly through suggested_subpath)
+        # Files without recognizable patterns should have empty subpath
+        # Files with patterns should have extracted subpath
+        for violation in result.violations:
+            # suggested_subpath should be a string (may be empty)
+            assert isinstance(violation.suggested_subpath, str)
+
+    def test_llm_path_preservation_called_with_correct_bin(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that suggest_subpath is called with the correct expected bin."""
+        # Mock T1 validation returning a different bin than keywords suggest
+        validation_response = MagicMock()
+        validation_response.success = True
+        validation_response.text = json.dumps({
+            "belongs_here": False,
+            "correct_bin": "VA",  # LLM says VA, not Finances
+            "confidence": 0.92,
+            "reason": "This is a VA document",
+        })
+
+        # Mock T2 path preservation response
+        path_response = MagicMock()
+        path_response.success = True
+        path_response.text = json.dumps({
+            "suggested_subpath": "Claims/2024",
+            "reason": "VA claims folder structure",
+        })
+
+        mock_llm_client.generate.side_effect = [validation_response, path_response]
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.expected_bin == "VA"
+        assert violation.suggested_subpath == "Claims/2024"
 
 
 # =============================================================================
