@@ -2828,3 +2828,38 @@ Task completed successfully.
   - Response structure verification
 - All 17 tests pass, linting passes
 - Task "Add GET /api/scatter-report dashboard endpoint" marked complete in PRD
+
+## 2026-03-03
+- Created scatter report dashboard page (Phase 12)
+  - Location: `dashboard/app/scatter-report/page.tsx`
+  - Features:
+    - Summary statistics: Total Violations, Files Scanned, Files in Correct Bin, Source (queue/scan)
+    - Model info display with model name and scanned directory
+    - Keyword fallback badge when LLM unavailable
+    - "Refresh from Queue" button to reload violations from pending queue
+    - "Run New Scan" button to trigger new Python scatter detection
+    - "Select High Confidence (>0.95)" button for bulk selection
+    - Violations grouped by root bin (expandable/collapsible)
+    - Each violation shows: filename, confidence badge (color-coded), model/keyword badge
+    - Current bin → Expected bin path with suggested subpath
+    - Full file path and LLM reason displayed
+    - Checkbox selection per violation
+    - Select All / Deselect All per group
+    - Empty state when no violations found
+    - Error state with retry button
+    - Loading state during fetch
+  - Added DashboardCard for Scatter Report and Agents to home page
+- Created test file `dashboard/__tests__/scatter-report-page.test.tsx` with 24 tests:
+  - Page title and description rendering
+  - Loading state display
+  - Violation groups and details display
+  - Summary stats display
+  - Model info and keyword fallback badges
+  - Error handling and retry functionality
+  - Empty state when no violations
+  - Group expand/collapse functionality
+  - Violation selection (single, all in group, high confidence)
+  - Refresh from queue and run new scan actions
+  - Confidence color coding (green/yellow/red)
+- All 24 tests pass, linting passes (no new errors in added files)
+- Task "Add scatter report page to dashboard" marked complete in PRD

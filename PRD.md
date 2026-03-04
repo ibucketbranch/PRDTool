@@ -462,7 +462,7 @@ A web-based dashboard that:
   - Always queue for review (never auto-execute); each proposal includes `reason` and `model_used`
 - [x] Add `GET /api/scatter-report` dashboard endpoint
   - Returns violations grouped by root bin: file, current location, proposed location, confidence, LLM reason
-- [ ] Add scatter report page to dashboard
+- [x] Add scatter report page to dashboard
   - Table with LLM reasoning visible per row; approve/reject per item; bulk approve > 0.95
 - [ ] Add tests
   - `test_scatter_detector.py`: LLM path (mock LLM), keyword fallback when LLM down, locked bin protection, path preservation

@@ -32,6 +32,16 @@ export default function Home() {
           description="Process new files from In-Box folder"
           href="/inbox"
         />
+        <DashboardCard
+          title="Scatter Report"
+          description="View files in wrong taxonomy bins and propose corrections"
+          href="/scatter-report"
+        />
+        <DashboardCard
+          title="Agents"
+          description="View agent status and trigger manual cycles"
+          href="/agents"
+        />
       </div>
     </main>
   );
