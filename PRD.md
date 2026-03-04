@@ -460,7 +460,7 @@ A web-based dashboard that:
 - [x] Add scatter report to agent cycle
   - After inbox step, run scatter detection; add violations as `ProposedAction` with `action_type="scatter_fix"`
   - Always queue for review (never auto-execute); each proposal includes `reason` and `model_used`
-- [ ] Add `GET /api/scatter-report` dashboard endpoint
+- [x] Add `GET /api/scatter-report` dashboard endpoint
   - Returns violations grouped by root bin: file, current location, proposed location, confidence, LLM reason
 - [ ] Add scatter report page to dashboard
   - Table with LLM reasoning visible per row; approve/reject per item; bulk approve > 0.95

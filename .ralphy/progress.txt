@@ -2806,3 +2806,25 @@ Task completed successfully.
   - `test_scatter_violation_with_keyword_fallback`: verifies fallback indicator in reasoning
 - All 15 tests pass, linting passes
 - Task "Add scatter report to agent cycle" marked complete in PRD
+
+## 2026-03-03
+- Created `GET /api/scatter-report` dashboard endpoint (Phase 12)
+  - Location: `dashboard/app/api/scatter-report/route.ts`
+  - GET endpoint reads scatter violations from queue or runs a new scan
+    - Query params: `basePath` (required), `scan`, `directory`, `maxFiles`
+    - Returns violations grouped by root bin with: file, current location, proposed location, confidence, LLM reason
+    - Source can be "queue" (reads from pending queue files) or "scan" (runs Python scatter detection)
+  - POST endpoint triggers a new scatter detection scan
+    - Body: `{ basePath, directory?, maxFiles? }`
+    - Runs Python scatter_detector.py and returns results
+  - Response includes: groups (by root bin), totalViolations, filesScanned, filesInCorrectBin, modelUsed, usedKeywordFallback
+  - Each violation includes: filePath, fileName, currentBin, expectedBin, confidence, reason, modelUsed, suggestedSubpath, usedKeywordFallback
+- Created test file `dashboard/__tests__/scatter-report-api.test.ts` with 17 tests:
+  - GET parameter validation (missing basePath, non-absolute path, nonexistent path)
+  - GET queue reading (empty queue, single violation, multiple violations, grouped by bin)
+  - GET filters to only scatter_fix actions (ignores move, inbox_file_move, etc.)
+  - GET error handling (missing queue dir, invalid JSON files)
+  - POST parameter validation (invalid JSON, missing basePath, non-absolute path, nonexistent path)
+  - Response structure verification
+- All 17 tests pass, linting passes
+- Task "Add GET /api/scatter-report dashboard endpoint" marked complete in PRD
