@@ -2482,3 +2482,23 @@ Task completed successfully.
   - TestStatusTransitions: full lifecycle transitions
 - All 62 tests pass, linting passes
 - PRD Phase 11 task "Create organizer/dry_run_validator.py module" marked complete
+
+## 2026-03-03
+- Implemented "Wire dry-run validation into agent cycle" (Phase 11)
+  - Added `dry_run_mode`, `dry_run_task_id`, and `prd_task_status_file` config options to `ContinuousAgentConfig`
+  - Added `_validate_dry_run()` method to `ContinuousOrganizerAgent` that:
+    - Validates proposed source paths exist
+    - Validates target paths are valid (non-empty for move actions)
+    - Checks for file conflicts (target already exists)
+    - Uses `validate_dry_run()` to update PRD task status
+    - Auto-transitions tasks to `ready` status when dry-run passes
+  - Modified `run_cycle()` to call `_validate_dry_run()` when in dry-run mode instead of executing actions
+  - Added `dry_run` summary to cycle output with validation results, error counts, and confidence distribution
+  - Created 4 new tests in `tests/test_continuous_agent.py`:
+    - `test_dry_run_mode_validates_proposals`: validates PRD task status is updated
+    - `test_dry_run_passes_with_valid_proposals`: validates task marked ready on success
+    - `test_dry_run_does_not_execute_actions`: validates dry-run prevents execution even with auto_execute=True
+    - `test_dry_run_summary_in_cycle_log`: validates dry-run info appears in cycle log
+- All 110 related tests pass (continuous_agent, dry_run_validator, prd_task_status)
+- Linting passes
+- Task completed successfully

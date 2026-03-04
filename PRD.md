@@ -415,7 +415,7 @@ A web-based dashboard that:
   - `DryRunResult` dataclass: task_id, passed (bool), errors (list), timestamp
   - `validate_dry_run(task_id, test_output) -> DryRunResult`: parse test/build output, determine pass/fail
   - `mark_ready(task_id)`: set status to `ready` when dry-run passes
-- [ ] Wire dry-run validation into agent cycle
+- [x] Wire dry-run validation into agent cycle
   - After `--agent-once` completes: if cycle ran in dry-run mode and all actions succeeded, mark associated PRD tasks as `dry_run_pass`
   - Auto-transition `dry_run_pass` → `ready` (no human gate needed for green runs)
 - [ ] Add `--dry-run` flag to agent cycle

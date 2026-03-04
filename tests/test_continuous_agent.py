@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from organizer.continuous_agent import ContinuousAgentConfig, ContinuousOrganizerAgent
+from organizer.prd_task_status import PRDTaskStatusTracker, DryRunStatus
 
 
 def test_project_key_normalizes_versions() -> None:
@@ -134,8 +135,156 @@ def test_inbox_proposals_appear_in_queue(tmp_path: Path) -> None:
     assert queue_path
     queue_data = json.loads(queue_path[0].read_text(encoding="utf-8"))
     inbox_actions = [
-        a for a in queue_data["actions"]
-        if a.get("action_type") == "inbox_file_move"
+        a for a in queue_data["actions"] if a.get("action_type") == "inbox_file_move"
     ]
     assert len(inbox_actions) >= 1
     assert inbox_actions[0]["group_name"] == "inbox_file_move"
+
+
+def test_dry_run_mode_validates_proposals(tmp_path: Path) -> None:
+    """Dry-run mode should validate proposals and update PRD task status."""
+    base = tmp_path / "root"
+    inbox = base / "In-Box"
+    inbox.mkdir(parents=True)
+    (inbox / "test_file.pdf").write_text("sample", encoding="utf-8")
+    (base / "Personal Bin").mkdir(parents=True)
+
+    task_status_file = tmp_path / "agent" / "prd_task_status.json"
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=True,
+        inbox_folder_name="In-Box",
+        auto_execute=False,
+        project_homing_enabled=False,
+        dry_run_mode=True,
+        dry_run_task_id="phase11_test",
+        prd_task_status_file=str(task_status_file),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # Check dry-run summary in cycle output
+    assert "dry_run" in cycle_summary
+    assert cycle_summary["dry_run"]["dry_run_mode"] is True
+    assert cycle_summary["dry_run"]["task_id"] == "phase11_test"
+
+    # Check that PRD task status was updated
+    tracker = PRDTaskStatusTracker(status_file=task_status_file)
+    status = tracker.get_status("phase11_test")
+    # If validation passed, status should be READY (auto-transitioned)
+    # If validation failed, status should be DRY_RUN_FAIL
+    assert status in (DryRunStatus.READY, DryRunStatus.DRY_RUN_FAIL)
+
+
+def test_dry_run_passes_with_valid_proposals(tmp_path: Path) -> None:
+    """Dry-run should pass and mark task ready when all proposals are valid."""
+    base = tmp_path / "root"
+    # Create a minimal setup that will produce no proposals
+    # (no inbox files, no scatter violations)
+    base.mkdir(parents=True)
+
+    task_status_file = tmp_path / "agent" / "prd_task_status.json"
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        auto_execute=False,
+        project_homing_enabled=False,
+        dry_run_mode=True,
+        dry_run_task_id="phase11_valid",
+        prd_task_status_file=str(task_status_file),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # With no proposals, validation should pass (0 passed, 0 failed)
+    assert cycle_summary["dry_run"]["validation_passed"] is True
+    assert len(cycle_summary["dry_run"]["errors"]) == 0
+
+    # Task should be marked as ready
+    tracker = PRDTaskStatusTracker(status_file=task_status_file)
+    status = tracker.get_status("phase11_valid")
+    assert status == DryRunStatus.READY
+
+
+def test_dry_run_does_not_execute_actions(tmp_path: Path) -> None:
+    """Dry-run mode should not execute any actions even if auto_execute is True."""
+    base = tmp_path / "root"
+    inbox = base / "In-Box"
+    inbox.mkdir(parents=True)
+    test_file = inbox / "test_file.pdf"
+    test_file.write_text("sample", encoding="utf-8")
+    (base / "Personal Bin").mkdir(parents=True)
+
+    task_status_file = tmp_path / "agent" / "prd_task_status.json"
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=True,
+        inbox_folder_name="In-Box",
+        auto_execute=True,  # auto_execute is True, but dry_run_mode should prevent execution
+        project_homing_enabled=False,
+        dry_run_mode=True,
+        dry_run_task_id="phase11_no_exec",
+        prd_task_status_file=str(task_status_file),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # File should still be in inbox (not moved)
+    assert test_file.exists()
+    # Execution summary should show skipped (not executed)
+    assert cycle_summary["execution"]["status"] == "skipped"
+    # Dry-run should have been performed
+    assert cycle_summary["dry_run"]["dry_run_mode"] is True
+
+
+def test_dry_run_summary_in_cycle_log(tmp_path: Path) -> None:
+    """Dry-run summary should be included in the cycle log file."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    task_status_file = tmp_path / "agent" / "prd_task_status.json"
+    logs_dir = tmp_path / "logs"
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        auto_execute=False,
+        project_homing_enabled=False,
+        dry_run_mode=True,
+        dry_run_task_id="phase11_log",
+        prd_task_status_file=str(task_status_file),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(logs_dir),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    agent.run_cycle()
+
+    # Check the cycle log file contains dry_run info
+    log_files = list(logs_dir.glob("cycle_*.json"))
+    assert len(log_files) == 1
+    log_data = json.loads(log_files[0].read_text(encoding="utf-8"))
+    assert "dry_run" in log_data
+    assert log_data["dry_run"]["task_id"] == "phase11_log"
