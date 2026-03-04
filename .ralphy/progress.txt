@@ -2545,3 +2545,27 @@ Task completed successfully.
 - All 213 CLI tests pass (201 existing + 12 new)
 - Linting passes (ruff)
 - PRD Phase 11 task "Add --dry-run flag to agent cycle" marked complete
+
+## 2026-03-03
+- Implemented `GET /api/agents/ready-tasks` dashboard endpoint (Phase 11)
+  - Created `dashboard/app/api/agents/ready-tasks/route.ts` with:
+    - `ReadyTask` interface matching PRDTaskStatusTracker's TaskStatus structure
+    - `ReadyTasksResponse` interface with ready_tasks array, total_count, timestamp
+    - `TaskHistoryEntry` interface for task lifecycle history
+    - GET endpoint that reads from `.organizer/agent/prd_task_status.json`
+    - Filters tasks with status "ready" for sprint candidates
+    - Sorts tasks by priority: phase order, then task order within phase
+    - Handles numeric and non-numeric task identifiers (e.g., "phase11.1", "phase12.scatter_detector")
+    - Proper error handling for missing/invalid status files
+    - Returns empty array gracefully when no tasks are tracked
+  - Created `dashboard/__tests__/ready-tasks-api.test.ts` with 17 comprehensive tests:
+    - Parameter validation: basePath required, timestamp included
+    - Missing status file handling: returns empty array
+    - Ready tasks filtering: only returns tasks with "ready" status
+    - Task data structure: all required fields, null dates, missing optional fields
+    - Task sorting: by phase order, by task order within phase, mixed identifiers
+    - Error handling: invalid JSON, missing tasks key
+    - Full lifecycle scenarios: correctly identifies ready tasks from complex data
+- All 17 tests pass
+- Linting passes on new code
+- PRD Phase 11 task "Add GET /api/agents/ready-tasks dashboard endpoint" marked complete

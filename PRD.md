@@ -421,7 +421,7 @@ A web-based dashboard that:
 - [x] Add `--dry-run` flag to agent cycle
   - Agent proposes actions but does not execute; validates proposals against filesystem and taxonomy
   - Reports: would-move count, confidence distribution, any conflicts
-- [ ] Add `GET /api/agents/ready-tasks` dashboard endpoint
+- [x] Add `GET /api/agents/ready-tasks` dashboard endpoint
   - Returns tasks with status `ready` — these are the next sprint candidates
   - Sorted by priority (phase order, then task order within phase)
 - [ ] Add ready-tasks panel to Agents dashboard page
