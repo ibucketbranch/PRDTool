@@ -644,7 +644,7 @@ A web-based dashboard that:
   - If T2 returns confidence < threshold AND `cloud_enabled` is true, escalate to T3
   - Each escalation logs: original model, original confidence, escalated model, new confidence
   - Max escalation chain: T1 → T2 → T3 → keyword fallback (never loops)
-- [ ] Implement graceful degradation chain
+- [x] Implement graceful degradation chain
   - If preferred model unavailable: T2 → T1 → keyword rules
   - If Ollama is down entirely: all agents fall back to keyword/rule-based logic seamlessly
   - Health state cached for 60s to avoid hammering Ollama on every call

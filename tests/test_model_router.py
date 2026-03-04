@@ -15,6 +15,7 @@ from organizer.model_router import (
     DEFAULT_SMART_MODEL,
     HEALTH_CACHE_DURATION_S,
     Complexity,
+    DegradationResult,
     EscalationResult,
     EscalationStep,
     HealthState,
@@ -1094,3 +1095,530 @@ class TestGenerateWithEscalation:
                 prompt="Test",
                 profile=TaskProfile(task_type="classify"),
             )
+
+
+class TestDegradationResult:
+    """Tests for DegradationResult dataclass."""
+
+    def test_create_result(self) -> None:
+        """Should create degradation result with all fields."""
+        result = DegradationResult(
+            text="test response",
+            model_used="llama3.1:8b",
+            tier_used=ModelTier.FAST,
+            used_llm=True,
+            degradation_reason=None,
+            duration_ms=3000,
+        )
+        assert result.text == "test response"
+        assert result.model_used == "llama3.1:8b"
+        assert result.tier_used == ModelTier.FAST
+        assert result.used_llm is True
+        assert result.degradation_reason is None
+        assert result.duration_ms == 3000
+
+    def test_result_with_degradation_reason(self) -> None:
+        """Should store degradation reason when provided."""
+        result = DegradationResult(
+            text="fallback result",
+            model_used="keyword_fallback",
+            tier_used=ModelTier.FAST,
+            used_llm=False,
+            degradation_reason="Ollama is not available",
+            duration_ms=100,
+        )
+        assert result.used_llm is False
+        assert result.degradation_reason == "Ollama is not available"
+
+
+class TestGetDegradationChain:
+    """Tests for get_degradation_chain method."""
+
+    def test_chain_from_cloud(self) -> None:
+        """Should return full chain from CLOUD."""
+        router = ModelRouter()
+        chain = router.get_degradation_chain(ModelTier.CLOUD)
+        assert chain == [ModelTier.CLOUD, ModelTier.SMART, ModelTier.FAST]
+
+    def test_chain_from_smart(self) -> None:
+        """Should return SMART → FAST chain."""
+        router = ModelRouter()
+        chain = router.get_degradation_chain(ModelTier.SMART)
+        assert chain == [ModelTier.SMART, ModelTier.FAST]
+
+    def test_chain_from_fast(self) -> None:
+        """Should return only FAST (no fallback)."""
+        router = ModelRouter()
+        chain = router.get_degradation_chain(ModelTier.FAST)
+        assert chain == [ModelTier.FAST]
+
+
+class TestGetBestAvailableTier:
+    """Tests for get_best_available_tier method."""
+
+    def test_returns_none_when_ollama_down(self) -> None:
+        """Should return None when Ollama is unavailable."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.get_best_available_tier() is None
+
+    def test_returns_fast_when_only_fast_available(self) -> None:
+        """Should return FAST when only fast model available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.get_best_available_tier() == ModelTier.FAST
+
+    def test_returns_smart_when_smart_available(self) -> None:
+        """Should return SMART when smart model available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.get_best_available_tier() == ModelTier.SMART
+
+    def test_returns_cloud_when_cloud_enabled_and_available(self) -> None:
+        """Should return CLOUD when cloud enabled and available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+            {"name": "cloud-model"},
+        ]
+
+        config = ModelConfig(cloud_enabled=True, cloud="cloud-model")
+        router = ModelRouter(llm_client=mock_client, config=config)
+        assert router.get_best_available_tier() == ModelTier.CLOUD
+
+    def test_returns_none_when_no_models(self) -> None:
+        """Should return None when no models loaded."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.get_best_available_tier() is None
+
+
+class TestGenerateWithDegradation:
+    """Tests for generate_with_degradation method."""
+
+    def _create_mock_response(
+        self,
+        text: str = "response",
+        success: bool = True,
+        duration_ms: int = 3000,
+        error: str | None = None,
+    ) -> MagicMock:
+        """Helper to create mock LLM response."""
+        response = MagicMock()
+        response.text = text
+        response.success = success
+        response.duration_ms = duration_ms
+        response.error = error
+        return response
+
+    def test_uses_keyword_fallback_when_ollama_down(self) -> None:
+        """Should use keyword fallback when Ollama is unavailable."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        result = router.generate_with_degradation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "keyword_result"
+        assert result.used_llm is False
+        assert result.model_used == "keyword_fallback"
+        assert result.degradation_reason == "Ollama is not available"
+
+    def test_uses_llm_when_available(self) -> None:
+        """Should use LLM when available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+        mock_client.generate.return_value = self._create_mock_response(
+            text="llm_result",
+            duration_ms=3000,
+        )
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        result = router.generate_with_degradation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "llm_result"
+        assert result.used_llm is True
+        assert result.model_used == DEFAULT_FAST_MODEL
+        assert result.degradation_reason is None
+
+    def test_degrades_from_smart_to_fast(self) -> None:
+        """Should degrade from SMART to FAST when SMART fails."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        # First call fails, second succeeds
+        mock_client.generate.side_effect = [
+            self._create_mock_response(success=False, error="Model error"),
+            self._create_mock_response(text="fast_result", success=True),
+        ]
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        result = router.generate_with_degradation(
+            prompt="Test",
+            profile=TaskProfile(task_type="analyze", complexity="high"),  # Prefers SMART
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "fast_result"
+        assert result.used_llm is True
+        assert result.model_used == DEFAULT_FAST_MODEL
+        assert result.tier_used == ModelTier.FAST
+        assert "Degraded from smart to fast" in result.degradation_reason
+
+    def test_uses_keyword_when_all_tiers_fail(self) -> None:
+        """Should use keyword fallback when all LLM tiers fail."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        # All calls fail
+        mock_client.generate.return_value = self._create_mock_response(
+            success=False,
+            error="All models failed",
+        )
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        result = router.generate_with_degradation(
+            prompt="Test",
+            profile=TaskProfile(task_type="analyze", complexity="high"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "keyword_result"
+        assert result.used_llm is False
+        assert result.model_used == "keyword_fallback"
+        assert "All LLM tiers failed" in result.degradation_reason
+
+    def test_uses_keyword_when_no_client(self) -> None:
+        """Should use keyword fallback when no LLM client configured."""
+        router = ModelRouter()  # No client
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        result = router.generate_with_degradation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "keyword_result"
+        assert result.used_llm is False
+        assert result.degradation_reason == "No LLM client configured"
+
+    def test_uses_keyword_when_no_models_available(self) -> None:
+        """Should use keyword fallback when no models loaded."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = []  # No models
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        result = router.generate_with_degradation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "keyword_result"
+        assert result.used_llm is False
+        assert "No models available" in result.degradation_reason
+
+    def test_tracks_degradation_from_routing(self) -> None:
+        """Should track when routing itself used fallback."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        # Only FAST available, not SMART
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+        mock_client.generate.return_value = self._create_mock_response(
+            text="result",
+            success=True,
+        )
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        # Request SMART-preferred task
+        result = router.generate_with_degradation(
+            prompt="Test",
+            profile=TaskProfile(task_type="analyze", complexity="high"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.used_llm is True
+        assert result.tier_used == ModelTier.FAST
+        # degradation_reason should indicate routing fallback
+        assert result.degradation_reason is not None
+        assert "Fallback" in result.degradation_reason
+
+
+class TestIsLlmOperational:
+    """Tests for is_llm_operational method."""
+
+    def test_returns_false_when_ollama_down(self) -> None:
+        """Should return False when Ollama unavailable."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.is_llm_operational() is False
+
+    def test_returns_false_when_no_models(self) -> None:
+        """Should return False when no models loaded."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.is_llm_operational() is False
+
+    def test_returns_true_when_fast_available(self) -> None:
+        """Should return True when at least FAST model available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.is_llm_operational() is True
+
+    def test_returns_true_when_smart_available(self) -> None:
+        """Should return True when SMART model available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_SMART_MODEL}]
+
+        router = ModelRouter(llm_client=mock_client)
+        assert router.is_llm_operational() is True
+
+
+class TestGetDegradationStatus:
+    """Tests for get_degradation_status method."""
+
+    def test_status_when_ollama_down(self) -> None:
+        """Should report Ollama unavailable status."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+        status = router.get_degradation_status()
+
+        assert status["ollama_available"] is False
+        assert status["available_tiers"] == []
+        assert status["preferred_tier"] is None
+        assert status["will_use_keyword_fallback"] is True
+
+    def test_status_when_models_available(self) -> None:
+        """Should report available models status."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        router = ModelRouter(llm_client=mock_client)
+        status = router.get_degradation_status()
+
+        assert status["ollama_available"] is True
+        assert "fast" in status["available_tiers"]
+        assert "smart" in status["available_tiers"]
+        assert status["preferred_tier"] == "smart"
+        assert status["will_use_keyword_fallback"] is False
+
+    def test_status_includes_cache_age(self) -> None:
+        """Should include health cache age."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+
+        router = ModelRouter(llm_client=mock_client)
+        status = router.get_degradation_status()
+
+        assert "health_cache_age_s" in status
+        assert isinstance(status["health_cache_age_s"], float)
+
+    def test_status_with_cloud_enabled(self) -> None:
+        """Should include cloud tier when enabled and available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+            {"name": "cloud-model"},
+        ]
+
+        config = ModelConfig(cloud_enabled=True, cloud="cloud-model")
+        router = ModelRouter(llm_client=mock_client, config=config)
+        status = router.get_degradation_status()
+
+        assert "cloud" in status["available_tiers"]
+        assert status["preferred_tier"] == "cloud"
+
+
+class TestGracefulDegradationIntegration:
+    """Integration tests for graceful degradation."""
+
+    def _create_mock_response(
+        self,
+        text: str = "response",
+        success: bool = True,
+        duration_ms: int = 3000,
+        error: str | None = None,
+    ) -> MagicMock:
+        """Helper to create mock LLM response."""
+        response = MagicMock()
+        response.text = text
+        response.success = success
+        response.duration_ms = duration_ms
+        response.error = error
+        return response
+
+    def test_full_degradation_workflow(self) -> None:
+        """Should handle complete degradation workflow."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        # Track the current state
+        call_count = [0]
+
+        def mock_generate(*args, **kwargs):
+            call_count[0] += 1
+            model = kwargs.get("model", "")
+            if DEFAULT_SMART_MODEL in model:
+                return self._create_mock_response(success=False, error="SMART failed")
+            return self._create_mock_response(text="FAST success", success=True)
+
+        mock_client.generate.side_effect = mock_generate
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        # Start with SMART-preferred task
+        result = router.generate_with_degradation(
+            prompt="Analyze this",
+            profile=TaskProfile(task_type="analyze", complexity="high"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        # Should have degraded to FAST
+        assert result.text == "FAST success"
+        assert result.used_llm is True
+        assert result.tier_used == ModelTier.FAST
+        assert result.degradation_reason is not None
+
+    def test_degradation_respects_health_cache(self) -> None:
+        """Should use cached health state."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+        mock_client.generate.return_value = self._create_mock_response()
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword"
+
+        # First call
+        router.generate_with_degradation(
+            prompt="Test 1",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        # Second call should use cached health state
+        router.generate_with_degradation(
+            prompt="Test 2",
+            profile=TaskProfile(task_type="validate"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        # Should only check availability once (cached)
+        assert mock_client.is_ollama_available.call_count == 1
+
+    def test_keyword_fallback_always_works(self) -> None:
+        """Keyword fallback should always provide a result."""
+        mock_client = MagicMock()
+        # Ollama is completely unavailable
+        mock_client.is_ollama_available.return_value = False
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+
+        fallback_called = [False]
+
+        def keyword_fallback(prompt: str) -> str:
+            fallback_called[0] = True
+            return f"Processed: {prompt[:10]}"
+
+        result = router.generate_with_degradation(
+            prompt="Test prompt",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert fallback_called[0] is True
+        assert "Processed: Test propt" in result.text or result.text.startswith("Processed")
+        assert result.used_llm is False

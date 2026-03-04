@@ -2370,3 +2370,27 @@ Task completed successfully.
 - All 81 model_router tests pass
 - Linting passes (ruff)
 - PRD Phase 16.1 confidence-based escalation task marked complete
+
+## 2026-03-03
+- Implemented graceful degradation chain in ModelRouter (Phase 16.1)
+  - Added `DegradationResult` dataclass to track degradation info
+  - Added `get_degradation_chain()` method to return fallback sequence (CLOUD → SMART → FAST)
+  - Added `get_best_available_tier()` to find highest available model tier
+  - Added `generate_with_degradation()` method for simplified degradation workflow
+    - Checks if Ollama is available, uses keyword fallback if not
+    - Tries routing to best model, falls back through tiers if unavailable
+    - Uses keyword fallback as last resort
+  - Added `is_llm_operational()` quick check for any operational LLM
+  - Added `get_degradation_status()` for observability (available tiers, health cache age)
+  - Health state cached for 60s to avoid hammering Ollama on every call
+- Added 27 new tests for graceful degradation in test_model_router.py
+  - TestDegradationResult: dataclass creation tests
+  - TestGetDegradationChain: chain ordering from each tier
+  - TestGetBestAvailableTier: tier selection based on availability
+  - TestGenerateWithDegradation: full degradation workflow tests
+  - TestIsLlmOperational: operational status checks
+  - TestGetDegradationStatus: observability status tests
+  - TestGracefulDegradationIntegration: integration tests
+- All 139 LLM-related tests pass, linting passes
+- Task completed successfully
+

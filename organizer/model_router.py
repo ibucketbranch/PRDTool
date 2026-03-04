@@ -243,6 +243,27 @@ class HealthState:
         return time.time() - self.timestamp > HEALTH_CACHE_DURATION_S
 
 
+@dataclass
+class DegradationResult:
+    """Result of a graceful degradation attempt.
+
+    Attributes:
+        text: The result text (from LLM or keyword fallback).
+        model_used: The model that produced the result (or "keyword_fallback").
+        tier_used: The tier of the model used (FAST for keyword fallback).
+        used_llm: Whether an LLM was used (False if keyword fallback).
+        degradation_reason: Why degradation occurred (if applicable).
+        duration_ms: Time taken for the operation.
+    """
+
+    text: str
+    model_used: str
+    tier_used: ModelTier
+    used_llm: bool
+    degradation_reason: str | None
+    duration_ms: int
+
+
 # Default routing table: maps (task_type, complexity) to preferred tier
 DEFAULT_ROUTING_TABLE: dict[tuple[str, str], ModelTier] = {
     # FAST tier for high-volume, simple tasks
@@ -742,3 +763,239 @@ class ModelRouter:
             escalation_count=escalation_count,
             used_keyword_fallback=False,
         )
+
+    def get_degradation_chain(self, preferred_tier: ModelTier) -> list[ModelTier]:
+        """Get the degradation chain from a preferred tier.
+
+        Returns the fallback sequence when the preferred tier is unavailable.
+        The chain goes: preferred → lower tiers → keyword fallback.
+
+        Args:
+            preferred_tier: The tier to start from.
+
+        Returns:
+            List of tiers to try in order (including the preferred tier first).
+        """
+        if preferred_tier == ModelTier.CLOUD:
+            return [ModelTier.CLOUD, ModelTier.SMART, ModelTier.FAST]
+        elif preferred_tier == ModelTier.SMART:
+            return [ModelTier.SMART, ModelTier.FAST]
+        else:
+            return [ModelTier.FAST]
+
+    def get_best_available_tier(self) -> ModelTier | None:
+        """Get the highest available model tier.
+
+        Returns:
+            The highest available tier, or None if no models available.
+        """
+        health = self._get_health_state()
+        if not health.ollama_available:
+            return None
+
+        # Check from highest to lowest
+        if self._config.cloud_enabled and self._is_model_available(self._config.cloud):
+            return ModelTier.CLOUD
+        if self._is_model_available(self._config.smart):
+            return ModelTier.SMART
+        if self._is_model_available(self._config.fast):
+            return ModelTier.FAST
+
+        return None
+
+    def generate_with_degradation(
+        self,
+        prompt: str,
+        profile: TaskProfile,
+        keyword_fallback: Callable[[str], str],
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ) -> DegradationResult:
+        """Generate a response with graceful degradation.
+
+        This method provides a simpler interface than generate_with_escalation
+        for cases where you just want the best available result with automatic
+        fallback to keyword-based logic.
+
+        Degradation chain: T2 → T1 → keyword rules
+
+        The method:
+        1. Checks if Ollama is available
+        2. If not, immediately uses keyword fallback
+        3. If available, tries to route to best model
+        4. Falls back through tiers if higher ones unavailable
+        5. Uses keyword fallback as last resort
+
+        Args:
+            prompt: The prompt to send to the model.
+            profile: Task profile describing the work to be done.
+            keyword_fallback: Function to use when LLM is unavailable.
+                Takes the prompt, returns a result string.
+            temperature: Temperature for generation (default 0.0 for determinism).
+            max_tokens: Maximum tokens to generate.
+
+        Returns:
+            DegradationResult with the result and degradation info.
+        """
+        start_time = time.time()
+
+        # Check if Ollama is available at all
+        if not self.is_ollama_available():
+            result = keyword_fallback(prompt)
+            duration_ms = int((time.time() - start_time) * 1000)
+            return DegradationResult(
+                text=result,
+                model_used="keyword_fallback",
+                tier_used=ModelTier.FAST,
+                used_llm=False,
+                degradation_reason="Ollama is not available",
+                duration_ms=duration_ms,
+            )
+
+        # Try to route to a model
+        try:
+            decision = self.route(profile)
+        except RuntimeError as e:
+            # No models available, use keyword fallback
+            result = keyword_fallback(prompt)
+            duration_ms = int((time.time() - start_time) * 1000)
+            return DegradationResult(
+                text=result,
+                model_used="keyword_fallback",
+                tier_used=ModelTier.FAST,
+                used_llm=False,
+                degradation_reason=str(e),
+                duration_ms=duration_ms,
+            )
+
+        # We have a model, try to generate
+        if self._llm_client is None:
+            # No client configured, use keyword fallback
+            result = keyword_fallback(prompt)
+            duration_ms = int((time.time() - start_time) * 1000)
+            return DegradationResult(
+                text=result,
+                model_used="keyword_fallback",
+                tier_used=ModelTier.FAST,
+                used_llm=False,
+                degradation_reason="No LLM client configured",
+                duration_ms=duration_ms,
+            )
+
+        response = self._llm_client.generate(
+            prompt=prompt,
+            model=decision.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        if response.success:
+            duration_ms = int((time.time() - start_time) * 1000)
+            degradation_reason = None
+            if decision.fallback_used:
+                degradation_reason = decision.reason
+            return DegradationResult(
+                text=response.text,
+                model_used=decision.model,
+                tier_used=decision.tier,
+                used_llm=True,
+                degradation_reason=degradation_reason,
+                duration_ms=duration_ms,
+            )
+
+        # Generation failed, try degradation chain
+        degradation_chain = self.get_degradation_chain(decision.tier)
+
+        # Skip the tier we already tried
+        for tier in degradation_chain:
+            if tier == decision.tier:
+                continue
+
+            model = self._get_model_for_tier(tier)
+            if model and self._is_model_available(model):
+                response = self._llm_client.generate(
+                    prompt=prompt,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+
+                if response.success:
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    return DegradationResult(
+                        text=response.text,
+                        model_used=model,
+                        tier_used=tier,
+                        used_llm=True,
+                        degradation_reason=f"Degraded from {decision.tier.value} to {tier.value}",
+                        duration_ms=duration_ms,
+                    )
+
+        # All tiers failed, use keyword fallback
+        result = keyword_fallback(prompt)
+        duration_ms = int((time.time() - start_time) * 1000)
+        return DegradationResult(
+            text=result,
+            model_used="keyword_fallback",
+            tier_used=ModelTier.FAST,
+            used_llm=False,
+            degradation_reason="All LLM tiers failed, using keyword fallback",
+            duration_ms=duration_ms,
+        )
+
+    def is_llm_operational(self) -> bool:
+        """Check if any LLM model is operational.
+
+        This is a quick check that can be used to decide whether to
+        attempt LLM-based logic or go straight to keyword fallback.
+
+        Returns:
+            True if Ollama is available and at least one model is loaded.
+        """
+        health = self._get_health_state()
+        if not health.ollama_available:
+            return False
+
+        # Check if any configured model is available
+        if self._is_model_available(self._config.fast):
+            return True
+        if self._is_model_available(self._config.smart):
+            return True
+        if self._config.cloud_enabled and self._is_model_available(self._config.cloud):
+            return True
+
+        return False
+
+    def get_degradation_status(self) -> dict[str, Any]:
+        """Get current degradation status for observability.
+
+        Returns:
+            Dictionary with:
+                - ollama_available: Whether Ollama is accessible
+                - available_tiers: List of available model tiers
+                - preferred_tier: The highest available tier
+                - will_use_keyword_fallback: Whether keyword fallback will be used
+                - health_cache_age_s: Age of the health cache in seconds
+        """
+        health = self._get_health_state()
+
+        available_tiers: list[str] = []
+        if self._is_model_available(self._config.fast):
+            available_tiers.append("fast")
+        if self._is_model_available(self._config.smart):
+            available_tiers.append("smart")
+        if self._config.cloud_enabled and self._is_model_available(self._config.cloud):
+            available_tiers.append("cloud")
+
+        best_tier = self.get_best_available_tier()
+
+        cache_age = time.time() - health.timestamp if health.timestamp > 0 else 0
+
+        return {
+            "ollama_available": health.ollama_available,
+            "available_tiers": available_tiers,
+            "preferred_tier": best_tier.value if best_tier else None,
+            "will_use_keyword_fallback": not health.ollama_available
+            or len(available_tiers) == 0,
+            "health_cache_age_s": round(cache_age, 2),
+        }
