@@ -411,7 +411,7 @@ A web-based dashboard that:
 - [x] Add `dry_run_status` field to PRD task tracking
   - Possible values: `untested`, `dry_run_pass`, `dry_run_fail`, `ready`
   - Stored in `.organizer/agent/prd_task_status.json` (task_id → status map)
-- [ ] Create `organizer/dry_run_validator.py` module
+- [x] Create `organizer/dry_run_validator.py` module
   - `DryRunResult` dataclass: task_id, passed (bool), errors (list), timestamp
   - `validate_dry_run(task_id, test_output) -> DryRunResult`: parse test/build output, determine pass/fail
   - `mark_ready(task_id)`: set status to `ready` when dry-run passes
