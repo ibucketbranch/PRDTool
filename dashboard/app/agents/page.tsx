@@ -69,6 +69,30 @@ interface AuditResult {
 	healthy: boolean;
 }
 
+interface TaskHistoryEntry {
+	timestamp: string;
+	event: string;
+	from_status: string;
+	to_status: string;
+	errors?: string[];
+}
+
+interface ReadyTask {
+	task_id: string;
+	status: "ready";
+	last_dry_run_at: string | null;
+	last_errors: string[];
+	marked_ready_at: string | null;
+	history: TaskHistoryEntry[];
+}
+
+interface ReadyTasksResponse {
+	ready_tasks: ReadyTask[];
+	total_count: number;
+	timestamp: string;
+	error?: string;
+}
+
 const BASE_PATH = process.env.NEXT_PUBLIC_ORGANIZER_BASE_PATH || "/Users/michaelvalderrama/Websites/PRDTool";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -86,6 +110,15 @@ export default function AgentsPage() {
 	const [actionResult, setActionResult] = useState<ControlResult | null>(null);
 	const [audit, setAudit] = useState<AuditResult | null>(null);
 	const [auditing, setAuditing] = useState(false);
+	const [readyTasks, setReadyTasks] = useState<ReadyTask[]>([]);
+	const [readyTasksLoading, setReadyTasksLoading] = useState(true);
+	const [executingTask, setExecutingTask] = useState<string | null>(null);
+	const [executeResult, setExecuteResult] = useState<{
+		success: boolean;
+		taskId: string;
+		message: string;
+		error?: string;
+	} | null>(null);
 
 	const loadAgents = useCallback(async () => {
 		try {
@@ -99,11 +132,32 @@ export default function AgentsPage() {
 		}
 	}, []);
 
+	const loadReadyTasks = useCallback(async () => {
+		try {
+			const res = await fetch(
+				`/api/agents/ready-tasks?basePath=${encodeURIComponent(BASE_PATH)}`
+			);
+			const data: ReadyTasksResponse = await res.json();
+			if (data.ready_tasks) {
+				setReadyTasks(data.ready_tasks);
+			}
+		} catch (err) {
+			console.error("Failed to load ready tasks:", err);
+		} finally {
+			setReadyTasksLoading(false);
+		}
+	}, []);
+
 	useEffect(() => {
 		loadAgents();
-		const interval = setInterval(loadAgents, 15_000);
-		return () => clearInterval(interval);
-	}, [loadAgents]);
+		loadReadyTasks();
+		const agentInterval = setInterval(loadAgents, 15_000);
+		const taskInterval = setInterval(loadReadyTasks, 30_000);
+		return () => {
+			clearInterval(agentInterval);
+			clearInterval(taskInterval);
+		};
+	}, [loadAgents, loadReadyTasks]);
 
 	const handleAction = async (agentId: string, action: string) => {
 		setActionInProgress(`${agentId}:${action}`);
@@ -140,6 +194,66 @@ export default function AgentsPage() {
 			console.error("Audit failed:", err);
 		} finally {
 			setAuditing(false);
+		}
+	};
+
+	const handleExecuteTask = async (taskId: string) => {
+		setExecutingTask(taskId);
+		setExecuteResult(null);
+		try {
+			// Get the first available agent to execute through
+			const primaryAgent = agents.length > 0 ? agents[0] : null;
+			if (!primaryAgent) {
+				setExecuteResult({
+					success: false,
+					taskId,
+					message: "No agent available to execute task",
+					error: "No agents found",
+				});
+				return;
+			}
+
+			// Execute by triggering a run-once on the agent
+			// The agent will process pending actions from the queue
+			const res = await fetch("/api/agents", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					basePath: BASE_PATH,
+					agentId: primaryAgent.id,
+					action: "run-once",
+				}),
+			});
+			const data: ControlResult = await res.json();
+
+			if (data.success) {
+				setExecuteResult({
+					success: true,
+					taskId,
+					message: `Task ${taskId} execution triggered via agent ${primaryAgent.id}`,
+				});
+				// Reload ready tasks after execution
+				setTimeout(() => {
+					loadReadyTasks();
+					loadAgents();
+				}, 3000);
+			} else {
+				setExecuteResult({
+					success: false,
+					taskId,
+					message: data.message,
+					error: data.error,
+				});
+			}
+		} catch (err) {
+			setExecuteResult({
+				success: false,
+				taskId,
+				message: "Failed to execute task",
+				error: err instanceof Error ? err.message : String(err),
+			});
+		} finally {
+			setExecutingTask(null);
 		}
 	};
 
@@ -332,6 +446,122 @@ export default function AgentsPage() {
 					</div>
 				))
 			)}
+
+			{/* Ready Tasks Panel */}
+			<div className="bg-white rounded-lg border border-neutral-200 p-6 mb-6">
+				<div className="flex items-center justify-between mb-4">
+					<div>
+						<h2 className="text-xl font-semibold">Ready Tasks</h2>
+						<p className="text-sm text-neutral-500">
+							Tasks that passed dry-run validation and are ready to execute
+						</p>
+					</div>
+					<button
+						onClick={loadReadyTasks}
+						disabled={readyTasksLoading}
+						className="px-3 py-1.5 rounded text-sm font-medium text-neutral-600 hover:bg-neutral-100 transition-colors"
+					>
+						{readyTasksLoading ? "Loading..." : "Refresh"}
+					</button>
+				</div>
+
+				{readyTasksLoading ? (
+					<p className="text-neutral-500 text-sm">Loading ready tasks...</p>
+				) : readyTasks.length === 0 ? (
+					<div className="bg-neutral-50 rounded-lg border border-neutral-200 p-6 text-center">
+						<p className="text-neutral-500">
+							No tasks are ready for execution. Run a dry-run validation to
+							mark tasks as ready.
+						</p>
+						<p className="text-xs text-neutral-400 mt-2">
+							Use <code>--dry-run --dry-run-task-id &lt;task_id&gt;</code> with
+							the agent to validate tasks.
+						</p>
+					</div>
+				) : (
+					<div className="space-y-3">
+						{readyTasks.map((task) => (
+							<div
+								key={task.task_id}
+								className="flex items-center justify-between bg-neutral-50 rounded-lg p-4"
+							>
+								<div className="flex-1">
+									<div className="flex items-center gap-2">
+										<span className="font-medium font-mono text-sm">
+											{task.task_id}
+										</span>
+										<span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+											ready
+										</span>
+									</div>
+									<div className="text-xs text-neutral-500 mt-1">
+										{task.marked_ready_at && (
+											<span>
+												Ready since:{" "}
+												{new Date(task.marked_ready_at).toLocaleString()}
+											</span>
+										)}
+										{task.last_dry_run_at && !task.marked_ready_at && (
+											<span>
+												Last dry-run:{" "}
+												{new Date(task.last_dry_run_at).toLocaleString()}
+											</span>
+										)}
+									</div>
+									{task.last_errors.length > 0 && (
+										<details className="mt-2">
+											<summary className="text-xs text-yellow-600 cursor-pointer">
+												{task.last_errors.length} previous error(s)
+											</summary>
+											<ul className="text-xs text-neutral-600 mt-1 space-y-1 pl-3">
+												{task.last_errors.slice(0, 5).map((err, idx) => (
+													<li key={idx} className="truncate max-w-md">
+														{err}
+													</li>
+												))}
+											</ul>
+										</details>
+									)}
+								</div>
+								<button
+									onClick={() => handleExecuteTask(task.task_id)}
+									disabled={executingTask !== null || agents.length === 0}
+									className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+										executingTask !== null || agents.length === 0
+											? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+											: "bg-green-600 text-white hover:bg-green-700"
+									}`}
+								>
+									{executingTask === task.task_id ? "Executing..." : "Execute"}
+								</button>
+							</div>
+						))}
+					</div>
+				)}
+
+				{/* Execution Result */}
+				{executeResult && (
+					<div
+						className={`mt-4 rounded-lg border p-4 ${
+							executeResult.success
+								? "bg-green-50 border-green-200"
+								: "bg-red-50 border-red-200"
+						}`}
+					>
+						<p className="text-sm font-medium">
+							{executeResult.success
+								? "Execution Triggered"
+								: "Execution Failed"}
+						</p>
+						<p className="text-sm mt-1">{executeResult.message}</p>
+						{executeResult.error && (
+							<p className="text-sm text-red-600 mt-1">
+								Error: {executeResult.error}
+							</p>
+						)}
+					</div>
+				)}
+			</div>
 
 			{/* Action Result */}
 			{actionResult && (

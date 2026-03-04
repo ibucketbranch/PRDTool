@@ -424,7 +424,7 @@ A web-based dashboard that:
 - [x] Add `GET /api/agents/ready-tasks` dashboard endpoint
   - Returns tasks with status `ready` — these are the next sprint candidates
   - Sorted by priority (phase order, then task order within phase)
-- [ ] Add ready-tasks panel to Agents dashboard page
+- [x] Add ready-tasks panel to Agents dashboard page
   - Shows tasks that passed dry-run and are ready to execute
   - One-click "Execute" button to run the task for real
 - [ ] Add tests

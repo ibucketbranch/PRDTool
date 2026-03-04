@@ -2569,3 +2569,31 @@ Task completed successfully.
 - All 17 tests pass
 - Linting passes on new code
 - PRD Phase 11 task "Add GET /api/agents/ready-tasks dashboard endpoint" marked complete
+
+## 2026-03-03
+- Implemented "Add ready-tasks panel to Agents dashboard page" (Phase 11)
+  - Added Ready Tasks panel to Agents dashboard page (`dashboard/app/agents/page.tsx`):
+    - Added `ReadyTask` and `ReadyTasksResponse` interfaces
+    - Added `readyTasks`, `readyTasksLoading`, `executingTask`, `executeResult` state variables
+    - Added `loadReadyTasks()` callback that fetches from `/api/agents/ready-tasks` endpoint
+    - Added `handleExecuteTask()` function that triggers agent `run-once` action
+    - Added Ready Tasks panel UI showing:
+      - Panel header with title, description, and Refresh button
+      - Empty state with instructions when no tasks are ready
+      - Task list with task_id, "ready" badge, marked_ready_at timestamp
+      - Expandable section showing previous errors if any
+      - Execute button for each task (disabled when no agents available)
+      - Execution result message (success/failure) below panel
+    - Auto-refresh ready tasks every 30 seconds
+    - Execute button triggers `POST /api/agents` with `run-once` action
+    - Reloads ready tasks and agents after successful execution
+  - Created comprehensive test suite (`dashboard/__tests__/agents-page-ready-tasks.test.tsx`) with 14 tests:
+    - Panel rendering: header, loading state, ready tasks display, empty state
+    - Task display: timestamps, previous errors in expandable section
+    - Execute button: renders for each task, disabled when no agents, triggers execution, shows executing state
+    - Execution results: success message, error message
+    - Refresh button: renders, reloads ready tasks on click
+- All 14 tests pass
+- All 31 ready-tasks related tests pass (17 API + 14 UI)
+- Linting passes on new code
+- PRD Phase 11 task "Add ready-tasks panel to Agents dashboard page" marked complete
