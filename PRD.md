@@ -639,7 +639,7 @@ A web-based dashboard that:
     }
     ```
   - Availability check: before routing to a model, verify it is loaded (`/api/tags`); if not, fall to next tier
-- [ ] Implement confidence-based escalation
+- [x] Implement confidence-based escalation
   - If T1 (fast) returns confidence < `escalation_threshold` (default 0.75), auto-escalate to T2 (smart)
   - If T2 returns confidence < threshold AND `cloud_enabled` is true, escalate to T3
   - Each escalation logs: original model, original confidence, escalated model, new confidence

@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from organizer.llm_client import LLMClient
@@ -154,6 +154,74 @@ class RoutingDecision:
     tier: ModelTier
     reason: str
     fallback_used: bool = False
+
+
+@dataclass
+class EscalationStep:
+    """Record of a single step in the escalation chain.
+
+    Attributes:
+        model: The model used for this step.
+        tier: The tier of the model.
+        confidence: The confidence score returned (if available).
+        duration_ms: Time taken for this step.
+        escalated: Whether this step triggered escalation to a higher tier.
+        response_text: The response text from the model.
+    """
+
+    model: str
+    tier: ModelTier
+    confidence: float | None
+    duration_ms: int
+    escalated: bool
+    response_text: str
+
+
+@dataclass
+class EscalationResult:
+    """Result of a generation request with automatic escalation.
+
+    Attributes:
+        text: The final response text from the model.
+        model_used: The final model that produced the accepted response.
+        tier_used: The tier of the final model.
+        confidence: The final confidence score (if available).
+        total_duration_ms: Total time across all steps.
+        steps: List of all escalation steps attempted.
+        escalation_count: Number of times the task was escalated.
+        used_keyword_fallback: Whether keyword fallback was used instead of LLM.
+    """
+
+    text: str
+    model_used: str
+    tier_used: ModelTier
+    confidence: float | None
+    total_duration_ms: int
+    steps: list[EscalationStep]
+    escalation_count: int
+    used_keyword_fallback: bool = False
+
+    @classmethod
+    def from_keyword_fallback(cls, text: str, duration_ms: int = 0) -> "EscalationResult":
+        """Create a result from keyword-based fallback logic.
+
+        Args:
+            text: The result from keyword fallback.
+            duration_ms: Time taken for keyword fallback.
+
+        Returns:
+            EscalationResult indicating keyword fallback was used.
+        """
+        return cls(
+            text=text,
+            model_used="keyword_fallback",
+            tier_used=ModelTier.FAST,  # Treat as FAST tier equivalent
+            confidence=None,
+            total_duration_ms=duration_ms,
+            steps=[],
+            escalation_count=0,
+            used_keyword_fallback=True,
+        )
 
 
 @dataclass
@@ -500,3 +568,177 @@ class ModelRouter:
     def config(self) -> ModelConfig:
         """Get the current model configuration."""
         return self._config
+
+    def generate_with_escalation(
+        self,
+        prompt: str,
+        profile: TaskProfile,
+        confidence_extractor: Callable[[str], float | None] | None = None,
+        keyword_fallback: Callable[[str], str] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ) -> EscalationResult:
+        """Generate a response with automatic confidence-based escalation.
+
+        This method implements the full escalation workflow:
+        1. Start with the preferred model for the task profile
+        2. If confidence < threshold, escalate to next tier
+        3. Chain: T1 → T2 → T3 → keyword fallback (never loops)
+        4. Log each escalation step with original and new confidence
+
+        Args:
+            prompt: The prompt to send to the model.
+            profile: Task profile describing the work to be done.
+            confidence_extractor: Function to extract confidence from model response.
+                Takes response text, returns confidence (0.0-1.0) or None if not found.
+                If None, no escalation based on confidence will occur.
+            keyword_fallback: Function to use when LLM is unavailable.
+                Takes the prompt, returns a result string.
+                If None and LLM is unavailable, raises RuntimeError.
+            temperature: Temperature for generation (default 0.0 for determinism).
+            max_tokens: Maximum tokens to generate.
+
+        Returns:
+            EscalationResult with the final response and escalation history.
+
+        Raises:
+            RuntimeError: If LLM is unavailable and no keyword_fallback provided.
+        """
+        if self._llm_client is None:
+            raise RuntimeError("LLM client is required for generate_with_escalation")
+
+        steps: list[EscalationStep] = []
+        total_duration_ms = 0
+        escalation_count = 0
+
+        # Check if Ollama is available
+        if not self.is_ollama_available():
+            if keyword_fallback is not None:
+                start_time = time.time()
+                result = keyword_fallback(prompt)
+                duration_ms = int((time.time() - start_time) * 1000)
+                return EscalationResult.from_keyword_fallback(result, duration_ms)
+            raise RuntimeError(
+                "Ollama is not available and no keyword_fallback provided"
+            )
+
+        # Get initial routing decision
+        try:
+            decision = self.route(profile)
+        except RuntimeError:
+            # No models available
+            if keyword_fallback is not None:
+                start_time = time.time()
+                result = keyword_fallback(prompt)
+                duration_ms = int((time.time() - start_time) * 1000)
+                return EscalationResult.from_keyword_fallback(result, duration_ms)
+            raise
+
+        current_model = decision.model
+        current_tier = decision.tier
+        final_text = ""
+        final_confidence: float | None = None
+
+        # Escalation loop: T1 → T2 → T3 → keyword fallback
+        max_iterations = 4  # Prevent infinite loops
+        for iteration in range(max_iterations):
+            # Generate response
+            response = self._llm_client.generate(
+                prompt=prompt,
+                model=current_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+            duration_ms = response.duration_ms
+            total_duration_ms += duration_ms
+
+            if not response.success:
+                # Model failed, try to escalate or fall back
+                step = EscalationStep(
+                    model=current_model,
+                    tier=current_tier,
+                    confidence=None,
+                    duration_ms=duration_ms,
+                    escalated=True,
+                    response_text=response.error or "Generation failed",
+                )
+                steps.append(step)
+
+                # Try next tier
+                next_tier = self.get_escalation_tier(current_tier)
+                if next_tier is not None:
+                    next_model = self._get_model_for_tier(next_tier)
+                    if next_model and self._is_model_available(next_model):
+                        current_model = next_model
+                        current_tier = next_tier
+                        escalation_count += 1
+                        continue
+
+                # No higher tier available, try keyword fallback
+                if keyword_fallback is not None:
+                    start_time = time.time()
+                    result = keyword_fallback(prompt)
+                    fallback_duration = int((time.time() - start_time) * 1000)
+                    total_duration_ms += fallback_duration
+                    return EscalationResult(
+                        text=result,
+                        model_used="keyword_fallback",
+                        tier_used=current_tier,
+                        confidence=None,
+                        total_duration_ms=total_duration_ms,
+                        steps=steps,
+                        escalation_count=escalation_count,
+                        used_keyword_fallback=True,
+                    )
+                raise RuntimeError(f"Generation failed: {response.error}")
+
+            # Extract confidence if extractor provided
+            confidence: float | None = None
+            if confidence_extractor is not None:
+                confidence = confidence_extractor(response.text)
+
+            # Check if we should escalate
+            should_escalate = False
+            if confidence is not None and self.should_escalate(confidence, current_tier):
+                next_tier = self.get_escalation_tier(current_tier)
+                if next_tier is not None:
+                    next_model = self._get_model_for_tier(next_tier)
+                    if next_model and self._is_model_available(next_model):
+                        should_escalate = True
+
+            # Record this step
+            step = EscalationStep(
+                model=current_model,
+                tier=current_tier,
+                confidence=confidence,
+                duration_ms=duration_ms,
+                escalated=should_escalate,
+                response_text=response.text,
+            )
+            steps.append(step)
+
+            if should_escalate:
+                # Escalate to next tier
+                next_tier = self.get_escalation_tier(current_tier)
+                next_model = self._get_model_for_tier(next_tier)  # type: ignore
+                current_model = next_model  # type: ignore
+                current_tier = next_tier  # type: ignore
+                escalation_count += 1
+                continue
+
+            # Accept this response
+            final_text = response.text
+            final_confidence = confidence
+            break
+
+        return EscalationResult(
+            text=final_text,
+            model_used=current_model,
+            tier_used=current_tier,
+            confidence=final_confidence,
+            total_duration_ms=total_duration_ms,
+            steps=steps,
+            escalation_count=escalation_count,
+            used_keyword_fallback=False,
+        )

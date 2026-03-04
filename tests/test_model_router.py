@@ -15,6 +15,8 @@ from organizer.model_router import (
     DEFAULT_SMART_MODEL,
     HEALTH_CACHE_DURATION_S,
     Complexity,
+    EscalationResult,
+    EscalationStep,
     HealthState,
     ModelConfig,
     ModelRouter,
@@ -615,3 +617,480 @@ class TestModelRouterIntegration:
         router = ModelRouter(llm_client=mock_client)
         model = router.select_model(TaskProfile(task_type="classify"))
         assert model == DEFAULT_FAST_MODEL
+
+
+class TestEscalationStep:
+    """Tests for EscalationStep dataclass."""
+
+    def test_create_step(self) -> None:
+        """Should create escalation step with all fields."""
+        step = EscalationStep(
+            model="llama3.1:8b",
+            tier=ModelTier.FAST,
+            confidence=0.85,
+            duration_ms=3500,
+            escalated=False,
+            response_text="Test response",
+        )
+        assert step.model == "llama3.1:8b"
+        assert step.tier == ModelTier.FAST
+        assert step.confidence == 0.85
+        assert step.duration_ms == 3500
+        assert step.escalated is False
+        assert step.response_text == "Test response"
+
+    def test_step_with_none_confidence(self) -> None:
+        """Should allow None confidence."""
+        step = EscalationStep(
+            model="llama3.1:8b",
+            tier=ModelTier.FAST,
+            confidence=None,
+            duration_ms=3500,
+            escalated=True,
+            response_text="Error response",
+        )
+        assert step.confidence is None
+        assert step.escalated is True
+
+
+class TestEscalationResult:
+    """Tests for EscalationResult dataclass."""
+
+    def test_create_result(self) -> None:
+        """Should create escalation result with all fields."""
+        step = EscalationStep(
+            model="llama3.1:8b",
+            tier=ModelTier.FAST,
+            confidence=0.9,
+            duration_ms=3000,
+            escalated=False,
+            response_text="Final response",
+        )
+        result = EscalationResult(
+            text="Final response",
+            model_used="llama3.1:8b",
+            tier_used=ModelTier.FAST,
+            confidence=0.9,
+            total_duration_ms=3000,
+            steps=[step],
+            escalation_count=0,
+            used_keyword_fallback=False,
+        )
+        assert result.text == "Final response"
+        assert result.model_used == "llama3.1:8b"
+        assert result.tier_used == ModelTier.FAST
+        assert result.confidence == 0.9
+        assert result.total_duration_ms == 3000
+        assert len(result.steps) == 1
+        assert result.escalation_count == 0
+        assert result.used_keyword_fallback is False
+
+    def test_from_keyword_fallback(self) -> None:
+        """Should create result from keyword fallback."""
+        result = EscalationResult.from_keyword_fallback("Keyword result", 100)
+        assert result.text == "Keyword result"
+        assert result.model_used == "keyword_fallback"
+        assert result.tier_used == ModelTier.FAST
+        assert result.confidence is None
+        assert result.total_duration_ms == 100
+        assert len(result.steps) == 0
+        assert result.escalation_count == 0
+        assert result.used_keyword_fallback is True
+
+    def test_from_keyword_fallback_default_duration(self) -> None:
+        """Should default duration to 0 for keyword fallback."""
+        result = EscalationResult.from_keyword_fallback("Result")
+        assert result.total_duration_ms == 0
+
+
+class TestGenerateWithEscalation:
+    """Tests for generate_with_escalation method."""
+
+    def _create_mock_response(
+        self,
+        text: str = "response",
+        success: bool = True,
+        duration_ms: int = 3000,
+        error: str | None = None,
+    ) -> MagicMock:
+        """Helper to create mock LLM response."""
+        response = MagicMock()
+        response.text = text
+        response.success = success
+        response.duration_ms = duration_ms
+        response.error = error
+        return response
+
+    def test_requires_llm_client(self) -> None:
+        """Should raise error when no LLM client provided."""
+        router = ModelRouter()  # No client
+        with pytest.raises(RuntimeError, match="LLM client is required"):
+            router.generate_with_escalation(
+                prompt="test",
+                profile=TaskProfile(task_type="classify"),
+            )
+
+    def test_successful_generation_no_escalation(self) -> None:
+        """Should return result without escalation when confidence high."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+        mock_client.generate.return_value = self._create_mock_response(
+            text='{"confidence": 0.9, "result": "test"}',
+            duration_ms=3000,
+        )
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def extract_confidence(text: str) -> float | None:
+            return 0.9
+
+        result = router.generate_with_escalation(
+            prompt="Classify this file",
+            profile=TaskProfile(task_type="classify"),
+            confidence_extractor=extract_confidence,
+        )
+
+        assert result.text == '{"confidence": 0.9, "result": "test"}'
+        assert result.model_used == DEFAULT_FAST_MODEL
+        assert result.tier_used == ModelTier.FAST
+        assert result.confidence == 0.9
+        assert result.escalation_count == 0
+        assert len(result.steps) == 1
+        assert result.steps[0].escalated is False
+
+    def test_escalation_from_fast_to_smart(self) -> None:
+        """Should escalate from FAST to SMART when confidence low."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        # First call returns low confidence, second returns high
+        mock_client.generate.side_effect = [
+            self._create_mock_response(text='{"confidence": 0.5}', duration_ms=3000),
+            self._create_mock_response(text='{"confidence": 0.95}', duration_ms=10000),
+        ]
+
+        router = ModelRouter(llm_client=mock_client)
+
+        call_count = [0]
+
+        def extract_confidence(text: str) -> float | None:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return 0.5  # First call: low confidence
+            return 0.95  # Second call: high confidence
+
+        result = router.generate_with_escalation(
+            prompt="Classify this file",
+            profile=TaskProfile(task_type="classify"),
+            confidence_extractor=extract_confidence,
+        )
+
+        assert result.model_used == DEFAULT_SMART_MODEL
+        assert result.tier_used == ModelTier.SMART
+        assert result.confidence == 0.95
+        assert result.escalation_count == 1
+        assert result.total_duration_ms == 13000  # 3000 + 10000
+        assert len(result.steps) == 2
+        assert result.steps[0].escalated is True
+        assert result.steps[1].escalated is False
+
+    def test_escalation_chain_fast_to_smart_to_cloud(self) -> None:
+        """Should escalate through full chain when cloud enabled."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+            {"name": "cloud-model"},
+        ]
+
+        mock_client.generate.side_effect = [
+            self._create_mock_response(text="low conf 1", duration_ms=3000),
+            self._create_mock_response(text="low conf 2", duration_ms=10000),
+            self._create_mock_response(text="high conf", duration_ms=20000),
+        ]
+
+        config = ModelConfig(cloud_enabled=True, cloud="cloud-model")
+        router = ModelRouter(llm_client=mock_client, config=config)
+
+        call_count = [0]
+
+        def extract_confidence(text: str) -> float | None:
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                return 0.5  # First two calls: low confidence
+            return 0.95  # Third call: high confidence
+
+        result = router.generate_with_escalation(
+            prompt="Complex task",
+            profile=TaskProfile(task_type="classify"),
+            confidence_extractor=extract_confidence,
+        )
+
+        assert result.model_used == "cloud-model"
+        assert result.tier_used == ModelTier.CLOUD
+        assert result.escalation_count == 2
+        assert len(result.steps) == 3
+
+    def test_keyword_fallback_when_ollama_unavailable(self) -> None:
+        """Should use keyword fallback when Ollama is down."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "keyword_result"
+
+        result = router.generate_with_escalation(
+            prompt="Classify",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "keyword_result"
+        assert result.used_keyword_fallback is True
+        assert result.model_used == "keyword_fallback"
+
+    def test_error_when_ollama_down_no_fallback(self) -> None:
+        """Should raise error when Ollama down and no fallback."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False
+        mock_client.list_models.return_value = []
+
+        router = ModelRouter(llm_client=mock_client)
+
+        with pytest.raises(RuntimeError, match="Ollama is not available"):
+            router.generate_with_escalation(
+                prompt="Classify",
+                profile=TaskProfile(task_type="classify"),
+            )
+
+    def test_no_escalation_without_confidence_extractor(self) -> None:
+        """Should not escalate when no confidence extractor provided."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+        mock_client.generate.return_value = self._create_mock_response(
+            text="result",
+            duration_ms=3000,
+        )
+
+        router = ModelRouter(llm_client=mock_client)
+
+        result = router.generate_with_escalation(
+            prompt="Classify",
+            profile=TaskProfile(task_type="classify"),
+            confidence_extractor=None,  # No extractor
+        )
+
+        # Should complete without escalation
+        assert result.escalation_count == 0
+        assert result.confidence is None
+        assert len(result.steps) == 1
+
+    def test_generation_failure_triggers_escalation(self) -> None:
+        """Should escalate when generation fails."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        mock_client.generate.side_effect = [
+            self._create_mock_response(
+                text="",
+                success=False,
+                error="Timeout",
+                duration_ms=60000,
+            ),
+            self._create_mock_response(
+                text="Success",
+                success=True,
+                duration_ms=10000,
+            ),
+        ]
+
+        router = ModelRouter(llm_client=mock_client)
+
+        result = router.generate_with_escalation(
+            prompt="Classify",
+            profile=TaskProfile(task_type="classify"),
+        )
+
+        assert result.text == "Success"
+        assert result.model_used == DEFAULT_SMART_MODEL
+        assert result.escalation_count == 1
+        assert len(result.steps) == 2
+        assert "Timeout" in result.steps[0].response_text
+
+    def test_keyword_fallback_after_all_tiers_fail(self) -> None:
+        """Should use keyword fallback when all tiers fail."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        # All tiers fail
+        mock_client.generate.side_effect = [
+            self._create_mock_response(success=False, error="Error 1", duration_ms=100),
+            self._create_mock_response(success=False, error="Error 2", duration_ms=100),
+        ]
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "fallback_result"
+
+        result = router.generate_with_escalation(
+            prompt="Classify",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.text == "fallback_result"
+        assert result.used_keyword_fallback is True
+        assert result.escalation_count == 1  # Escalated once before fallback
+
+    def test_escalation_logs_each_step(self) -> None:
+        """Should log each step with model, confidence, and duration."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [
+            {"name": DEFAULT_FAST_MODEL},
+            {"name": DEFAULT_SMART_MODEL},
+        ]
+
+        mock_client.generate.side_effect = [
+            self._create_mock_response(text="step1", duration_ms=3000),
+            self._create_mock_response(text="step2", duration_ms=10000),
+        ]
+
+        router = ModelRouter(llm_client=mock_client)
+
+        call_count = [0]
+
+        def extract_confidence(text: str) -> float | None:
+            call_count[0] += 1
+            return 0.5 if call_count[0] == 1 else 0.9
+
+        result = router.generate_with_escalation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            confidence_extractor=extract_confidence,
+        )
+
+        # Verify step logging
+        assert len(result.steps) == 2
+
+        # First step
+        assert result.steps[0].model == DEFAULT_FAST_MODEL
+        assert result.steps[0].tier == ModelTier.FAST
+        assert result.steps[0].confidence == 0.5
+        assert result.steps[0].duration_ms == 3000
+        assert result.steps[0].escalated is True
+        assert result.steps[0].response_text == "step1"
+
+        # Second step
+        assert result.steps[1].model == DEFAULT_SMART_MODEL
+        assert result.steps[1].tier == ModelTier.SMART
+        assert result.steps[1].confidence == 0.9
+        assert result.steps[1].duration_ms == 10000
+        assert result.steps[1].escalated is False
+        assert result.steps[1].response_text == "step2"
+
+    def test_max_iterations_prevents_infinite_loop(self) -> None:
+        """Should stop after max iterations to prevent infinite loops."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+
+        # Always return low confidence
+        mock_client.generate.return_value = self._create_mock_response(
+            text="low_conf",
+            duration_ms=1000,
+        )
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def extract_confidence(text: str) -> float | None:
+            return 0.3  # Always low
+
+        result = router.generate_with_escalation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            confidence_extractor=extract_confidence,
+        )
+
+        # Should still complete (with low confidence result)
+        assert result.text == "low_conf"
+        # Should not loop forever - FAST has no higher tier to escalate to
+        assert len(result.steps) == 1
+
+    def test_custom_temperature_and_max_tokens(self) -> None:
+        """Should pass custom temperature and max_tokens to generate."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = [{"name": DEFAULT_FAST_MODEL}]
+        mock_client.generate.return_value = self._create_mock_response()
+
+        router = ModelRouter(llm_client=mock_client)
+
+        router.generate_with_escalation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            temperature=0.7,
+            max_tokens=2048,
+        )
+
+        # Verify generate was called with correct params
+        mock_client.generate.assert_called_once()
+        call_kwargs = mock_client.generate.call_args
+        assert call_kwargs.kwargs["temperature"] == 0.7
+        assert call_kwargs.kwargs["max_tokens"] == 2048
+
+    def test_no_models_available_with_fallback(self) -> None:
+        """Should use fallback when no models available."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = []  # No models
+
+        router = ModelRouter(llm_client=mock_client)
+
+        def keyword_fallback(prompt: str) -> str:
+            return "fallback"
+
+        result = router.generate_with_escalation(
+            prompt="Test",
+            profile=TaskProfile(task_type="classify"),
+            keyword_fallback=keyword_fallback,
+        )
+
+        assert result.used_keyword_fallback is True
+        assert result.text == "fallback"
+
+    def test_no_models_available_without_fallback(self) -> None:
+        """Should raise error when no models and no fallback."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = []  # No models
+
+        router = ModelRouter(llm_client=mock_client)
+
+        with pytest.raises(RuntimeError, match="No models available"):
+            router.generate_with_escalation(
+                prompt="Test",
+                profile=TaskProfile(task_type="classify"),
+            )

@@ -2328,3 +2328,45 @@ Task completed successfully.
 - All 98 tests pass (62 model_router, 30 llm_client, 6 continuous_agent)
 - Linting passes (ruff)
 - PRD Phase 16.1 ModelRouter task marked complete
+
+## 2026-03-03
+- Implemented confidence-based escalation in `organizer/model_router.py` (Phase 16.1)
+  - Added `EscalationStep` dataclass to track each step in the escalation chain:
+    - model: the model used for this step
+    - tier: the tier of the model (FAST, SMART, CLOUD)
+    - confidence: the confidence score returned (if available)
+    - duration_ms: time taken for this step
+    - escalated: whether this step triggered escalation
+    - response_text: the response text from the model
+  - Added `EscalationResult` dataclass to track the full escalation result:
+    - text: final response text
+    - model_used: final model that produced the accepted response
+    - tier_used: tier of the final model
+    - confidence: final confidence score (if available)
+    - total_duration_ms: total time across all steps
+    - steps: list of all EscalationStep objects
+    - escalation_count: number of times the task was escalated
+    - used_keyword_fallback: whether keyword fallback was used
+    - `from_keyword_fallback()` class method for keyword fallback results
+  - Added `generate_with_escalation()` method to ModelRouter:
+    - Implements full escalation workflow: T1 → T2 → T3 → keyword fallback
+    - Takes prompt, TaskProfile, optional confidence_extractor, optional keyword_fallback
+    - confidence_extractor: function to extract confidence from model response text
+    - keyword_fallback: function to use when LLM is unavailable
+    - Auto-escalates when confidence < escalation_threshold (default 0.75)
+    - Logs each step with model, confidence, duration, and response text
+    - Max 4 iterations to prevent infinite loops
+    - Graceful degradation: uses keyword fallback when Ollama down or all tiers fail
+    - Supports custom temperature and max_tokens parameters
+- Added 19 new tests in `tests/test_model_router.py`:
+  - TestEscalationStep: create step, step with none confidence
+  - TestEscalationResult: create result, from_keyword_fallback, default duration
+  - TestGenerateWithEscalation: requires LLM client, successful generation no escalation,
+    escalation from FAST to SMART, escalation chain FAST→SMART→CLOUD, keyword fallback
+    when Ollama unavailable, error when no fallback, no escalation without confidence
+    extractor, generation failure triggers escalation, keyword fallback after all tiers
+    fail, escalation logs each step, max iterations prevents infinite loop, custom
+    temperature and max_tokens, no models available with/without fallback
+- All 81 model_router tests pass
+- Linting passes (ruff)
+- PRD Phase 16.1 confidence-based escalation task marked complete
