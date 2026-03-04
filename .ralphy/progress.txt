@@ -2741,3 +2741,28 @@ Task completed successfully.
 - Linting passes
 - Task completed successfully
 
+
+## 2026-03-03
+- Created organizer/registry_sync.py module for Phase 12 (Resync canonical registry with taxonomy)
+  - `SyncReport` dataclass for tracking sync results (orphaned, missing, valid, special entries)
+  - `load_taxonomy_paths()` - extracts all valid paths from ROOT_TAXONOMY.json
+  - `load_registry_mappings()` - loads mappings from canonical_registry.json
+  - `check_registry_against_taxonomy()` - read-only validation producing SyncReport
+  - `resync_registry_with_taxonomy()` - full sync with options to remove orphans and add missing entries
+  - `get_valid_bins_from_taxonomy()` - returns list of root bins
+  - `get_subcategories_from_taxonomy()` - returns subcategories organized by parent bin
+  - `is_valid_registry_destination()` - validates if a destination is valid according to taxonomy
+  - Supports dry-run mode for safe validation without modifications
+  - Handles special entries like __KEEP_AT_ROOT__
+- Created tests/test_registry_sync.py with 30 unit tests covering:
+  - SyncReport to_dict and summary generation
+  - Loading taxonomy paths from various sources (roots, family, finance, rules)
+  - Loading and parsing registry mappings
+  - Identifying valid, orphaned, and special entries
+  - Resync operations (dry-run, remove orphans, add missing)
+  - Subcategory extraction by parent bin
+  - Destination validation
+  - Full integration workflow tests
+- Updated organizer/__init__.py to export new module functions
+- All 30 tests pass, linting passes
+- Task completed successfully

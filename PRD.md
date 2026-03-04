@@ -454,7 +454,7 @@ A web-based dashboard that:
   - When proposing a scatter fix, ask **T2 Smart**:
     `"What subfolder structure should '{filename}' have inside '{target_bin}'? Preserve year/agency hierarchy. Reply JSON {suggested_subpath, reason}"`
   - Never flatten: `2011/IRS/1040.pdf` → `Finances Bin/Taxes/Federal/2011/1040.pdf`
-- [ ] Resync canonical registry with taxonomy
+- [x] Resync canonical registry with taxonomy
   - Cross-check `canonical_registry.json` entries against `ROOT_TAXONOMY.json`
   - Remove orphaned entries; add missing entries
 - [ ] Add scatter report to agent cycle

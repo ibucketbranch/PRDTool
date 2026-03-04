@@ -167,6 +167,16 @@ from organizer.scatter_detector import (
     load_scatter_report,
     save_scatter_report,
 )
+from organizer.registry_sync import (
+    SyncReport,
+    load_taxonomy_paths,
+    load_registry_mappings,
+    check_registry_against_taxonomy,
+    resync_registry_with_taxonomy,
+    get_valid_bins_from_taxonomy,
+    get_subcategories_from_taxonomy,
+    is_valid_registry_destination,
+)
 
 __all__ = [
     "normalize_folder_name",
@@ -306,4 +316,12 @@ __all__ = [
     "detect_scatter",
     "load_scatter_report",
     "save_scatter_report",
+    "SyncReport",
+    "load_taxonomy_paths",
+    "load_registry_mappings",
+    "check_registry_against_taxonomy",
+    "resync_registry_with_taxonomy",
+    "get_valid_bins_from_taxonomy",
+    "get_subcategories_from_taxonomy",
+    "is_valid_registry_destination",
 ]
