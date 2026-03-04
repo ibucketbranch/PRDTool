@@ -2394,3 +2394,37 @@ Task completed successfully.
 - All 139 LLM-related tests pass, linting passes
 - Task completed successfully
 
+
+## 2026-03-03
+- Implemented prompt management system in `organizer/prompt_registry.py` (Phase 16.1)
+  - Created `PromptMetadata` dataclass: name, version, last_modified, description
+  - Created `LoadedPrompt` dataclass: metadata, template, source_path
+  - Created `PromptRegistry` class:
+    - Loads prompts by name from `.organizer/prompts/` directory
+    - Supports variable substitution with `{variable}` placeholders
+    - Parses prompt headers for version, description, last-modified metadata
+    - Caches loaded prompts for performance
+    - Creates default prompts on first run if directory is missing
+    - `get(prompt_name, **variables)`: get prompt with substitution
+    - `get_raw(name)`: get raw template without substitution
+    - `get_metadata(name)`: get prompt metadata
+    - `list_prompts()`: list all available prompts (files + defaults)
+    - `has_prompt(name)`: check if prompt exists
+    - `get_variables(name)`: extract variable names from template
+    - `reload(name=None)`: clear cache and reload prompts
+  - Created 8 default prompts: classify_file, validate_placement, suggest_subfolder,
+    detect_domain, generate_rule, assess_drift, extract_metadata, narrate_structure
+  - Added convenience functions: `get_prompt()`, `list_available_prompts()`
+  - Updated `organizer/__init__.py` to export new module classes and functions
+- Created `tests/test_prompt_registry.py` with 35 unit tests covering:
+  - TestPromptMetadata: dataclass creation, empty values
+  - TestLoadedPrompt: dataclass creation, no source path
+  - TestPromptRegistry: init, directory creation, default prompts, variable substitution,
+    missing variables, not found, raw template, metadata parsing, list prompts, has_prompt,
+    get_variables, reload single/all, caching, default fallback, header parsing
+  - TestDefaultPrompts: existence, headers, expected variables
+  - TestConvenienceFunctions: get_prompt, list_available_prompts
+  - TestPromptRegistryIntegration: full workflow, custom overrides, empty directory
+- All 174 LLM-related tests pass (35 prompt_registry + 30 llm_client + 109 model_router)
+- Linting passes (ruff)
+- PRD Phase 16.1 prompt management system task marked complete

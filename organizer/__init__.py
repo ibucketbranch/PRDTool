@@ -139,6 +139,14 @@ from organizer.smart_rules import (
     apply_smart_rules,
     apply_smart_rules_to_group,
 )
+from organizer.prompt_registry import (
+    PromptRegistry,
+    PromptMetadata,
+    LoadedPrompt,
+    DEFAULT_PROMPTS,
+    get_prompt,
+    list_available_prompts,
+)
 
 __all__ = [
     "normalize_folder_name",
@@ -256,4 +264,10 @@ __all__ = [
     "are_path_contexts_compatible",
     "apply_smart_rules",
     "apply_smart_rules_to_group",
+    "PromptRegistry",
+    "PromptMetadata",
+    "LoadedPrompt",
+    "DEFAULT_PROMPTS",
+    "get_prompt",
+    "list_available_prompts",
 ]

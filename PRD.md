@@ -648,7 +648,7 @@ A web-based dashboard that:
   - If preferred model unavailable: T2 → T1 → keyword rules
   - If Ollama is down entirely: all agents fall back to keyword/rule-based logic seamlessly
   - Health state cached for 60s to avoid hammering Ollama on every call
-- [ ] Create prompt management system
+- [x] Create prompt management system
   - Prompts stored in `.organizer/prompts/` directory as editable `.txt` files
   - `PromptRegistry` class: loads prompts by name, supports variable substitution (`{filename}`, `{bins}`, `{content}`)
   - Prompt versioning: each prompt file has a header comment with version and last-modified date
