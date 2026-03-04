@@ -2872,3 +2872,40 @@ Task completed successfully.
 - All linting passes (ruff check)
 - Marked Phase 12 'Add tests' task as complete in PRD.md
 
+
+## 2026-03-03
+- Created `organizer/file_dna.py` module (Phase 13: Intelligence-Agent)
+  - `FileDNA` dataclass with all required fields:
+    - file_path, sha256_hash, content_summary (first 500 chars)
+    - auto_tags, origin, first_seen_at, routed_to, duplicate_of, model_used
+    - to_dict()/from_dict() for JSON serialization
+  - `TagExtractionResult` dataclass for structured tag extraction results
+  - `compute_file_hash(filepath)`: SHA-256 hashing in 8KB chunks
+    - Handles large files efficiently
+    - Raises FileNotFoundError/IsADirectoryError appropriately
+  - `get_content_preview(filepath, max_chars=500)`: Text extraction
+    - Skips binary files (.pdf, .jpg, .exe, etc.)
+    - Normalizes whitespace
+  - `extract_tags(filename, content_text, llm_client, ...)`: LLM-native tag extraction
+    - Uses T1 Fast model via prompt for high-volume extraction
+    - Extracts: document_type, year, organizations, people, topics
+    - Graceful degradation: falls back to regex year + keyword patterns
+  - `DNARegistry` class for persistent storage:
+    - load/save to `.organizer/agent/file_dna.json`
+    - register_file(): compute hash, extract tags, persist
+    - get_by_path(), find_by_hash(): fast lookups
+    - update_routed_to(), mark_duplicate(): update records
+    - find_duplicates(): detect files with same hash
+    - search_by_tag(), search_by_keyword(): content search
+    - remove(), clear(), get_all(), get_count()
+- Created 57 tests in `tests/test_file_dna.py`:
+  - TestFileDNA: dataclass creation, serialization, roundtrip
+  - TestTagExtractionResult: tag list generation, deduplication
+  - TestComputeFileHash: small/empty/large files, error handling, consistency
+  - TestGetContentPreview: text extraction, binary skip, whitespace normalization
+  - TestExtractTagsWithKeywords: year extraction, doc type detection, org detection
+  - TestExtractTagsWithLLM: LLM success, fallback scenarios, JSON parsing
+  - TestDNARegistry: full CRUD operations, persistence, duplicate detection
+  - TestDNARegistryWithLLM: LLM integration, model router integration
+- All 57 tests pass, linting passes
+- Task "Create organizer/file_dna.py module" marked complete in PRD

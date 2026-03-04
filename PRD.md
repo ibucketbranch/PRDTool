@@ -476,7 +476,7 @@ A web-based dashboard that:
 > for large clusters (> 50 files). Exact hash dedup is deterministic — no LLM
 > needed. Falls back to regex + ROUTING_RULES keywords if LLM unavailable.
 
-- [ ] Create `organizer/file_dna.py` module
+- [x] Create `organizer/file_dna.py` module
   - `FileDNA` dataclass: file_path, sha256_hash, content_summary (first 500 chars), auto_tags, origin, first_seen_at, routed_to, duplicate_of, model_used
   - `DNARegistry` class: load/save from `.organizer/agent/file_dna.json`
   - `compute_file_hash(filepath) -> str`: SHA-256 in 8KB chunks
