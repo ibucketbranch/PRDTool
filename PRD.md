@@ -660,7 +660,7 @@ A web-based dashboard that:
 > and experiment framework that all agents depend on.
 
 #### 16.2 -- Filing-Agent LLM Integration (Phase 10 upgrade)
-- [ ] Replace keyword matching in `InboxProcessor._classify()` with LLM-first classification
+- [x] Replace keyword matching in `InboxProcessor._classify()` with LLM-first classification
   - Primary model: **T1 Fast** (high volume, needs speed -- ~3.7s per file)
   - Prompt: given filename + first 500 chars of content + available bins/subcategories, return JSON `{bin, subcategory, confidence, reason}`
   - Escalation: if T1 confidence < 0.75, re-classify with **T2 Smart** using full content

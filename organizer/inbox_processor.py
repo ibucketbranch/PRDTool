@@ -1,9 +1,13 @@
-"""Rule-based In-Box file processor.
+"""LLM-native In-Box file processor with keyword fallback.
 
-Scans the In-Box folder and classifies each file by matching its name
-(and optionally extracted PDF text) against keyword patterns derived from
-the canonical registry and taxonomy.  Results are returned as routing
-proposals; the caller decides whether to auto-execute.
+Scans the In-Box folder and classifies each file using LLM-first classification
+with automatic escalation and graceful degradation to keyword-based rules.
+Results are returned as routing proposals; the caller decides whether to auto-execute.
+
+Classification strategy:
+1. Try LLM classification (T1 Fast model for speed)
+2. If confidence < 0.75, escalate to T2 Smart model
+3. If LLM unavailable, fall back to keyword ROUTING_RULES
 """
 
 from __future__ import annotations
@@ -15,7 +19,12 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from organizer.llm_client import LLMClient
+    from organizer.model_router import ModelRouter
+    from organizer.prompt_registry import PromptRegistry
 
 
 def _now_iso() -> str:
@@ -98,6 +107,29 @@ _FILENAME_YEAR_RE = re.compile(r"(19[89][0-9]|20[0-2][0-9]|2030)")
 
 
 @dataclass
+class LLMClassificationResult:
+    """Result from LLM-based classification.
+
+    Attributes:
+        bin: The destination bin path.
+        subcategory: Optional subcategory within the bin.
+        confidence: Confidence score (0.0-1.0).
+        reason: LLM's explanation for the classification.
+        model_used: The model that produced this result.
+        escalated: Whether escalation occurred.
+        used_keyword_fallback: Whether keyword fallback was used.
+    """
+
+    bin: str
+    subcategory: str
+    confidence: float
+    reason: str
+    model_used: str = ""
+    escalated: bool = False
+    used_keyword_fallback: bool = False
+
+
+@dataclass
 class InboxRouting:
     """A single proposed file routing decision."""
 
@@ -109,6 +141,10 @@ class InboxRouting:
     status: str = "proposed"
     error: str = ""
     date_signals: dict[str, Any] = field(default_factory=dict)
+    # LLM classification fields
+    reason: str = ""  # LLM's explanation for the classification
+    model_used: str = ""  # Model that produced this classification
+    used_keyword_fallback: bool = False  # Whether keyword fallback was used
 
 
 @dataclass
@@ -125,7 +161,11 @@ class InboxCycleResult:
 
 
 class InboxProcessor:
-    """Stateless, rule-based In-Box classifier and router."""
+    """LLM-native In-Box classifier and router with keyword fallback.
+
+    Uses LLM classification by default with automatic escalation.
+    Falls back to keyword-based routing when LLM is unavailable.
+    """
 
     def __init__(
         self,
@@ -133,10 +173,42 @@ class InboxProcessor:
         inbox_name: str = "In-Box",
         canonical_registry_path: str = "",
         taxonomy_path: str = "",
+        llm_client: "LLMClient | None" = None,
+        model_router: "ModelRouter | None" = None,
+        prompt_registry: "PromptRegistry | None" = None,
+        use_llm: bool = True,
     ):
+        """Initialize the InboxProcessor.
+
+        Args:
+            base_path: Root path for file organization.
+            inbox_name: Name of the inbox folder.
+            canonical_registry_path: Path to canonical registry JSON.
+            taxonomy_path: Path to taxonomy JSON.
+            llm_client: LLM client for classification. If None, uses keyword only.
+            model_router: Model router for tier selection. Created if llm_client provided.
+            prompt_registry: Prompt registry for LLM prompts. Created if llm_client provided.
+            use_llm: Whether to attempt LLM classification (default True).
+        """
         self.base_path = Path(base_path)
         self.inbox_dir = self.base_path / inbox_name
         self._extra_rules: list[tuple[list[str], str]] = []
+        self._llm_client = llm_client
+        self._model_router = model_router
+        self._prompt_registry = prompt_registry
+        self._use_llm = use_llm
+
+        # Initialize LLM components if client provided but router/registry not
+        if llm_client is not None and use_llm:
+            if model_router is None:
+                from organizer.model_router import ModelRouter
+
+                self._model_router = ModelRouter(llm_client=llm_client)
+            if prompt_registry is None:
+                from organizer.prompt_registry import PromptRegistry
+
+                self._prompt_registry = PromptRegistry()
+
         if canonical_registry_path:
             self._load_registry_rules(canonical_registry_path)
         if taxonomy_path:
@@ -227,23 +299,25 @@ class InboxProcessor:
             signals["filename_years"] = [int(y) for y in filename_years]
         return signals
 
-    def _classify(self, filepath: Path) -> InboxRouting:
-        """Match a single file against the routing rules.
+    def _classify_with_keywords(self, filepath: Path, date_signals: dict[str, Any], pdf_text: str) -> InboxRouting:
+        """Classify a file using keyword-based rules (fallback method).
 
         Two-pass strategy: filename match always wins over content match.
         Pass 1: match against filename only (high confidence).
         Pass 2: match against PDF content (lower confidence).
         This prevents content bleed (e.g. a resume mentioning "veteran"
         being routed to VA instead of Resumes).
+
+        Args:
+            filepath: Path to the file to classify.
+            date_signals: Date signals extracted from the file.
+            pdf_text: Extracted PDF text content.
+
+        Returns:
+            InboxRouting with classification result.
         """
         stem_lower = filepath.stem.lower()
         filename_text = f" {stem_lower} "
-
-        date_signals = self._extract_date_signals(filepath)
-
-        pdf_text = ""
-        if filepath.suffix.lower() == ".pdf":
-            pdf_text = self._extract_pdf_text(filepath)
 
         all_rules = list(ROUTING_RULES) + self._extra_rules
 
@@ -263,6 +337,7 @@ class InboxProcessor:
                     confidence=confidence,
                     matched_keywords=matched,
                     date_signals=date_signals,
+                    used_keyword_fallback=True,
                 )
 
         # Pass 2: content matching for PDFs (lower confidence)
@@ -278,6 +353,7 @@ class InboxProcessor:
                         confidence=0.80,
                         matched_keywords=matched,
                         date_signals=date_signals,
+                        used_keyword_fallback=True,
                     )
 
         # Content-based category mapping: try CategoryMapper for taxonomy-aligned categories
@@ -300,6 +376,7 @@ class InboxProcessor:
                         confidence=0.65,
                         matched_keywords=[f"category:{category_key}"],
                         date_signals=date_signals,
+                        used_keyword_fallback=True,
                     )
         except ImportError:
             pass
@@ -312,7 +389,50 @@ class InboxProcessor:
             matched_keywords=[],
             status="unmatched",
             date_signals=date_signals,
+            used_keyword_fallback=True,
         )
+
+    def _classify(self, filepath: Path) -> InboxRouting:
+        """Classify a file using LLM-first strategy with keyword fallback.
+
+        Classification strategy:
+        1. Try LLM classification (T1 Fast for speed)
+        2. If LLM confidence < 0.75, escalate to T2 Smart
+        3. If LLM unavailable or fails, fall back to keyword rules
+
+        Args:
+            filepath: Path to the file to classify.
+
+        Returns:
+            InboxRouting with classification result and metadata.
+        """
+        date_signals = self._extract_date_signals(filepath)
+
+        # Extract content preview for LLM
+        pdf_text = ""
+        if filepath.suffix.lower() == ".pdf":
+            pdf_text = self._extract_pdf_text(filepath)
+
+        # Try LLM classification first
+        if self._use_llm and self._llm_client is not None:
+            content_preview = pdf_text if pdf_text else ""
+            llm_result = self._classify_with_llm(filepath, content_preview)
+
+            if llm_result is not None and llm_result.bin:
+                return InboxRouting(
+                    filename=filepath.name,
+                    source_path=str(filepath),
+                    destination_bin=llm_result.bin,
+                    confidence=llm_result.confidence,
+                    matched_keywords=[f"llm:{llm_result.model_used}"],
+                    date_signals=date_signals,
+                    reason=llm_result.reason,
+                    model_used=llm_result.model_used,
+                    used_keyword_fallback=False,
+                )
+
+        # Fall back to keyword-based classification
+        return self._classify_with_keywords(filepath, date_signals, pdf_text)
 
     @staticmethod
     def _extract_pdf_text(filepath: Path, max_chars: int = 2000) -> str:
@@ -327,3 +447,161 @@ class InboxProcessor:
             return out.stdout[:max_chars] if out.returncode == 0 else ""
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return ""
+
+    def _get_available_bins(self) -> str:
+        """Get a formatted string of available bins for LLM prompting."""
+        # Extract unique bins from ROUTING_RULES and extra rules
+        bins: set[str] = set()
+        for _, dest in ROUTING_RULES:
+            bins.add(dest)
+        for _, dest in self._extra_rules:
+            bins.add(dest)
+        return "\n".join(sorted(bins))
+
+    def _parse_llm_json_response(self, text: str) -> dict[str, Any]:
+        """Parse JSON from LLM response, handling common formatting issues.
+
+        Args:
+            text: Raw LLM response text.
+
+        Returns:
+            Parsed JSON as dict, or empty dict if parsing fails.
+        """
+        # Try to extract JSON from response
+        # LLMs sometimes wrap JSON in markdown code blocks
+        text = text.strip()
+
+        # Remove markdown code blocks
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+        # Try to find JSON object in text
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Try to find JSON between braces
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                pass
+
+        return {}
+
+    def _extract_confidence(self, text: str) -> float | None:
+        """Extract confidence score from LLM JSON response.
+
+        Args:
+            text: Raw LLM response text.
+
+        Returns:
+            Confidence score (0.0-1.0) or None if not found.
+        """
+        parsed = self._parse_llm_json_response(text)
+        confidence = parsed.get("confidence")
+        if isinstance(confidence, (int, float)):
+            return float(confidence)
+        return None
+
+    def _classify_with_llm(
+        self, filepath: Path, content_preview: str
+    ) -> LLMClassificationResult | None:
+        """Classify a file using LLM with automatic escalation.
+
+        Uses T1 Fast model first, escalates to T2 Smart if confidence < 0.75.
+        Returns None if LLM is unavailable (caller should use keyword fallback).
+
+        Args:
+            filepath: Path to the file to classify.
+            content_preview: Content preview (first 500 chars) for classification.
+
+        Returns:
+            LLMClassificationResult or None if LLM unavailable.
+        """
+        if (
+            not self._use_llm
+            or self._llm_client is None
+            or self._model_router is None
+            or self._prompt_registry is None
+        ):
+            return None
+
+        # Check if LLM is operational
+        if not self._model_router.is_llm_operational():
+            return None
+
+        # Build prompt
+        bins = self._get_available_bins()
+        try:
+            prompt = self._prompt_registry.get(
+                "classify_file",
+                filename=filepath.name,
+                content=content_preview[:500] if content_preview else "(no content preview)",
+                bins=bins,
+            )
+        except (FileNotFoundError, KeyError):
+            # Prompt not available, fall back to keyword
+            return None
+
+        # Create task profile for classification
+        from organizer.model_router import TaskProfile
+
+        profile = TaskProfile(
+            task_type="classify",
+            complexity="low",  # File classification is a low-complexity task
+            content_length=len(content_preview),
+        )
+
+        # Use generate_with_escalation for automatic escalation handling
+        try:
+            result = self._model_router.generate_with_escalation(
+                prompt=prompt,
+                profile=profile,
+                confidence_extractor=self._extract_confidence,
+                keyword_fallback=None,  # We handle fallback separately
+                temperature=0.0,  # Deterministic for consistency
+                max_tokens=256,
+            )
+        except RuntimeError:
+            # LLM failed, return None to trigger keyword fallback
+            return None
+
+        if result.used_keyword_fallback:
+            # Escalation chain exhausted without success
+            return None
+
+        # Parse the response
+        parsed = self._parse_llm_json_response(result.text)
+        if not parsed:
+            return None
+
+        bin_value = parsed.get("bin", "")
+        if not bin_value:
+            return None
+
+        # Build destination path (bin + optional subcategory)
+        subcategory = parsed.get("subcategory", "")
+        destination = bin_value
+        if subcategory and subcategory != bin_value:
+            # Only add subcategory if it's not already part of the bin path
+            if not bin_value.endswith(subcategory):
+                destination = f"{bin_value}/{subcategory}"
+
+        return LLMClassificationResult(
+            bin=destination,
+            subcategory=subcategory,
+            confidence=result.confidence if result.confidence is not None else 0.5,
+            reason=parsed.get("reason", ""),
+            model_used=result.model_used,
+            escalated=result.escalation_count > 0,
+            used_keyword_fallback=False,
+        )

@@ -2620,3 +2620,36 @@ Task completed successfully.
   - Fixed unrelated lint error: removed unused `asdict` import from inbox_processor.py
   - Linting passes on all organizer code
   - PRD Phase 11 task "Add tests" marked complete
+
+## 2026-03-03
+- Implemented "Replace keyword matching in InboxProcessor._classify() with LLM-first classification" (Phase 16.2)
+  - Updated `organizer/inbox_processor.py`:
+    - Added `LLMClassificationResult` dataclass for LLM classification results
+    - Extended `InboxRouting` with LLM-related fields: `reason`, `model_used`, `used_keyword_fallback`
+    - Updated `InboxProcessor` constructor to accept `llm_client`, `model_router`, `prompt_registry`, and `use_llm` parameters
+    - Auto-creates `ModelRouter` and `PromptRegistry` when `llm_client` is provided
+    - Added `_get_available_bins()` method to generate bin list for LLM prompts
+    - Added `_parse_llm_json_response()` for robust JSON parsing from LLM responses (handles markdown code blocks, extra text)
+    - Added `_extract_confidence()` helper for confidence extraction
+    - Added `_classify_with_llm()` method implementing LLM classification with escalation:
+      - Uses T1 Fast model by default (task_type="classify", complexity="low")
+      - Automatic escalation to T2 Smart when confidence < 0.75
+      - Uses `prompt_registry.get("classify_file", ...)` for prompt generation
+      - Returns `LLMClassificationResult` or `None` to trigger keyword fallback
+    - Refactored `_classify()` to use LLM-first strategy:
+      - Tries LLM classification first when `llm_client` is available and `use_llm=True`
+      - Falls back to keyword-based `_classify_with_keywords()` when LLM unavailable or fails
+    - Extracted original keyword logic to `_classify_with_keywords()` method
+    - All routing results now include `used_keyword_fallback` flag for observability
+  - Created comprehensive test suite in `tests/test_organizer_inbox.py`:
+    - `TestLLMClassificationResult` (2 tests): dataclass creation, default values
+    - `TestInboxRoutingLLMFields` (2 tests): LLM field presence, default values
+    - `TestInboxProcessorLLMIntegration` (5 tests): client acceptance, router/registry creation, custom router, use_llm flag
+    - `TestInboxProcessorKeywordFallback` (3 tests): no client, LLM unavailable, LLM fails
+    - `TestInboxProcessorLLMClassification` (2 tests): uses LLM when available, records escalation
+    - `TestInboxProcessorJSONParsing` (6 tests): clean JSON, markdown blocks, text before JSON, invalid JSON, confidence extraction
+    - `TestInboxProcessorAvailableBins` (1 test): sorted unique bin list
+  - All 25 tests pass (4 existing + 21 new)
+  - All 35 inbox/continuous agent tests pass
+  - Linting passes (ruff)
+  - PRD Phase 16.2 task "Replace keyword matching in InboxProcessor._classify() with LLM-first classification" marked complete
