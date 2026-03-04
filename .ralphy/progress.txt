@@ -2228,3 +2228,40 @@ Task completed successfully.
 - All 90 tests for canonical_registry + scatter_detector pass
 - Linting passes
 
+
+## 2026-03-03
+- Created `organizer/llm_client.py` module (Phase 16.1: LLM Engine, first task)
+  - Added `LLMResponse` dataclass with fields:
+    - text: generated text from model
+    - model_used: the model that produced the response
+    - duration_ms: time taken for generation in milliseconds
+    - tokens_eval: number of tokens evaluated
+    - success: whether the request succeeded
+    - error: error message if failed
+    - `from_error()` class method for creating failed responses
+  - Added `LLMClient` class wrapping Ollama REST API:
+    - `__init__(base_url, default_timeout_s)`: initializes with configurable URL and timeout
+    - Uses `requests.Session` for connection pooling across calls
+    - `generate(prompt, model, temperature, max_tokens, timeout_s)`: generates text from prompt
+      - Supports custom model, temperature, max_tokens, timeout
+      - Handles timeout, connection, HTTP, and unexpected errors gracefully
+    - `list_models(timeout_s)`: lists all available models from Ollama
+    - `is_model_available(model, timeout_s)`: checks if specific model is available
+    - `is_ollama_available(timeout_s)`: checks if Ollama is running and accessible
+    - `close()`: closes the underlying HTTP session
+    - Context manager support (`__enter__`, `__exit__`)
+  - Default Ollama URL: http://localhost:11434
+  - Default timeout: 60 seconds
+  - Default model: llama3.1:8b-instruct-q8_0
+- Created `tests/test_llm_client.py` with 30 unit tests covering:
+  - TestLLMResponse: create response, create with error, from_error, from_error without model
+  - TestLLMClientInit: default init, custom URL, URL trailing slash stripped, custom timeout, session created
+  - TestLLMClientGenerate: success, custom params, timeout, connection error, HTTP error, unexpected error
+  - TestLLMClientListModels: success, empty, error
+  - TestLLMClientIsModelAvailable: exact match, prefix match, not available, model field
+  - TestLLMClientIsOllamaAvailable: available, connection error, bad status
+  - TestLLMClientContextManager: enter, exit closes session, close method
+  - TestLLMClientIntegration: classification prompt, fallback scenario
+- All 30 tests pass
+- Linting passes (ruff)
+- PRD Phase 16.1 first task marked complete

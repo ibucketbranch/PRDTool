@@ -618,7 +618,7 @@ A web-based dashboard that:
 > | T3 Cloud | `deepseek-v3.1:671b-cloud` | remote | ~15-30s | Fallback cloud option |
 
 #### 16.1 -- LLM Engine (`organizer/llm_client.py`)
-- [ ] Create `LLMClient` class wrapping Ollama REST API (`localhost:11434/api/generate`)
+- [x] Create `LLMClient` class wrapping Ollama REST API (`localhost:11434/api/generate`)
   - `generate(prompt, model, temperature, max_tokens, timeout_s) -> LLMResponse`
   - `LLMResponse` dataclass: text, model_used, duration_ms, tokens_eval, success
   - Connection pooling via `requests.Session`; reuse across calls in same cycle
