@@ -177,6 +177,14 @@ from organizer.registry_sync import (
     get_subcategories_from_taxonomy,
     is_valid_registry_destination,
 )
+from organizer.inbox_processor import (
+    InboxProcessor,
+    InboxRouting,
+    InboxCycleResult,
+    LLMClassificationResult,
+    ClassificationComparison,
+    ROUTING_RULES,
+)
 
 __all__ = [
     "normalize_folder_name",
@@ -324,4 +332,10 @@ __all__ = [
     "get_valid_bins_from_taxonomy",
     "get_subcategories_from_taxonomy",
     "is_valid_registry_destination",
+    "InboxProcessor",
+    "InboxRouting",
+    "InboxCycleResult",
+    "LLMClassificationResult",
+    "ClassificationComparison",
+    "ROUTING_RULES",
 ]

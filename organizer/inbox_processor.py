@@ -16,7 +16,8 @@ import json
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -130,6 +131,34 @@ class LLMClassificationResult:
 
 
 @dataclass
+class ClassificationComparison:
+    """A/B comparison between LLM and keyword classification results.
+
+    Used during rollout to compare LLM classification against keyword-based
+    routing and build confidence in the LLM approach before fully transitioning.
+
+    Attributes:
+        filename: Name of the file being classified.
+        llm_result: Result from LLM classification (None if LLM unavailable).
+        keyword_result: Result from keyword-based classification.
+        agreed: Whether both methods agreed on the destination bin.
+        winner: Which method's result was used for actual routing.
+        timestamp: When the comparison was made.
+    """
+
+    filename: str
+    llm_result: dict[str, Any] | None
+    keyword_result: dict[str, Any]
+    agreed: bool
+    winner: str  # "llm" or "keyword"
+    timestamp: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.timestamp:
+            self.timestamp = _now_iso()
+
+
+@dataclass
 class InboxRouting:
     """A single proposed file routing decision."""
 
@@ -177,6 +206,8 @@ class InboxProcessor:
         model_router: "ModelRouter | None" = None,
         prompt_registry: "PromptRegistry | None" = None,
         use_llm: bool = True,
+        ab_comparison_enabled: bool = False,
+        comparison_logs_dir: str = "",
     ):
         """Initialize the InboxProcessor.
 
@@ -189,6 +220,10 @@ class InboxProcessor:
             model_router: Model router for tier selection. Created if llm_client provided.
             prompt_registry: Prompt registry for LLM prompts. Created if llm_client provided.
             use_llm: Whether to attempt LLM classification (default True).
+            ab_comparison_enabled: If True, run both LLM and keyword classification
+                                   and log comparison results.
+            comparison_logs_dir: Directory for A/B comparison logs.
+                                 Defaults to .organizer/agent/logs if not specified.
         """
         self.base_path = Path(base_path)
         self.inbox_dir = self.base_path / inbox_name
@@ -197,6 +232,11 @@ class InboxProcessor:
         self._model_router = model_router
         self._prompt_registry = prompt_registry
         self._use_llm = use_llm
+        self._ab_comparison_enabled = ab_comparison_enabled
+        self._comparison_logs_dir = Path(
+            comparison_logs_dir or ".organizer/agent/logs"
+        )
+        self._current_cycle_comparisons: list[ClassificationComparison] = []
 
         # Initialize LLM components if client provided but router/registry not
         if llm_client is not None and use_llm:
@@ -237,8 +277,19 @@ class InboxProcessor:
             for keyword, dest in section.items():
                 self._extra_rules.append(([keyword.replace("_", " ")], dest))
 
-    def scan(self) -> InboxCycleResult:
-        """Scan In-Box and produce routing proposals (no moves)."""
+    def scan(self, cycle_id: str = "") -> InboxCycleResult:
+        """Scan In-Box and produce routing proposals (no moves).
+
+        Args:
+            cycle_id: Optional cycle identifier for A/B comparison logging.
+                     If not provided, a UUID will be generated when A/B mode is enabled.
+
+        Returns:
+            InboxCycleResult with routing proposals.
+        """
+        # Reset comparisons for this scan cycle
+        self._current_cycle_comparisons = []
+
         result = InboxCycleResult(
             inbox_path=str(self.inbox_dir),
             scanned_at=_now_iso(),
@@ -259,6 +310,10 @@ class InboxProcessor:
                 result.routed += 1
             else:
                 result.unmatched += 1
+
+        # Save A/B comparison log if enabled and comparisons were made
+        if self._ab_comparison_enabled and self._current_cycle_comparisons:
+            self._save_comparison_log(cycle_id or str(uuid.uuid4())[:8])
 
         return result
 
@@ -400,6 +455,9 @@ class InboxProcessor:
         2. If LLM confidence < 0.75, escalate to T2 Smart
         3. If LLM unavailable or fails, fall back to keyword rules
 
+        When A/B comparison mode is enabled, both LLM and keyword classification
+        are run for every file, and results are logged for analysis.
+
         Args:
             filepath: Path to the file to classify.
 
@@ -413,7 +471,11 @@ class InboxProcessor:
         if filepath.suffix.lower() == ".pdf":
             pdf_text = self._extract_pdf_text(filepath)
 
-        # Try LLM classification first
+        # A/B comparison mode: run BOTH methods and log results
+        if self._ab_comparison_enabled:
+            return self._classify_with_ab_comparison(filepath, date_signals, pdf_text)
+
+        # Normal mode: LLM-first with keyword fallback
         if self._use_llm and self._llm_client is not None:
             content_preview = pdf_text if pdf_text else ""
             llm_result = self._classify_with_llm(filepath, content_preview)
@@ -433,6 +495,131 @@ class InboxProcessor:
 
         # Fall back to keyword-based classification
         return self._classify_with_keywords(filepath, date_signals, pdf_text)
+
+    def _classify_with_ab_comparison(
+        self, filepath: Path, date_signals: dict[str, Any], pdf_text: str
+    ) -> InboxRouting:
+        """Classify using both LLM and keyword methods, logging comparison.
+
+        This method is used when A/B comparison mode is enabled. It runs both
+        classification methods and stores the comparison for later analysis.
+
+        Args:
+            filepath: Path to the file to classify.
+            date_signals: Date signals extracted from the file.
+            pdf_text: Extracted PDF text content.
+
+        Returns:
+            InboxRouting with the winning classification result.
+        """
+        content_preview = pdf_text if pdf_text else ""
+
+        # Always get keyword result
+        keyword_routing = self._classify_with_keywords(filepath, date_signals, pdf_text)
+        keyword_result = {
+            "bin": keyword_routing.destination_bin,
+            "confidence": keyword_routing.confidence,
+            "matched_keywords": keyword_routing.matched_keywords,
+        }
+
+        # Try LLM classification
+        llm_result_dict: dict[str, Any] | None = None
+        llm_routing: InboxRouting | None = None
+
+        if self._use_llm and self._llm_client is not None:
+            llm_classification = self._classify_with_llm(filepath, content_preview)
+            if llm_classification is not None and llm_classification.bin:
+                llm_result_dict = {
+                    "bin": llm_classification.bin,
+                    "subcategory": llm_classification.subcategory,
+                    "confidence": llm_classification.confidence,
+                    "reason": llm_classification.reason,
+                    "model_used": llm_classification.model_used,
+                    "escalated": llm_classification.escalated,
+                }
+                llm_routing = InboxRouting(
+                    filename=filepath.name,
+                    source_path=str(filepath),
+                    destination_bin=llm_classification.bin,
+                    confidence=llm_classification.confidence,
+                    matched_keywords=[f"llm:{llm_classification.model_used}"],
+                    date_signals=date_signals,
+                    reason=llm_classification.reason,
+                    model_used=llm_classification.model_used,
+                    used_keyword_fallback=False,
+                )
+
+        # Determine agreement and winner
+        llm_bin = llm_result_dict["bin"] if llm_result_dict else ""
+        keyword_bin = keyword_result["bin"]
+        agreed = llm_bin == keyword_bin if llm_bin else False
+        winner = "llm" if llm_routing is not None else "keyword"
+
+        # Log comparison
+        comparison = ClassificationComparison(
+            filename=filepath.name,
+            llm_result=llm_result_dict,
+            keyword_result=keyword_result,
+            agreed=agreed,
+            winner=winner,
+        )
+        self._current_cycle_comparisons.append(comparison)
+
+        # Return the winning routing
+        return llm_routing if llm_routing is not None else keyword_routing
+
+    def _save_comparison_log(self, cycle_id: str) -> Path:
+        """Save A/B comparison results to a JSON log file.
+
+        Args:
+            cycle_id: Identifier for the current scan cycle.
+
+        Returns:
+            Path to the saved log file.
+        """
+        self._comparison_logs_dir.mkdir(parents=True, exist_ok=True)
+        log_path = self._comparison_logs_dir / f"llm_comparison_{cycle_id}.json"
+
+        # Calculate summary statistics
+        total = len(self._current_cycle_comparisons)
+        agreed_count = sum(1 for c in self._current_cycle_comparisons if c.agreed)
+        llm_available_count = sum(
+            1 for c in self._current_cycle_comparisons if c.llm_result is not None
+        )
+        llm_winner_count = sum(
+            1 for c in self._current_cycle_comparisons if c.winner == "llm"
+        )
+
+        log_data = {
+            "cycle_id": cycle_id,
+            "timestamp": _now_iso(),
+            "summary": {
+                "total_files": total,
+                "llm_available": llm_available_count,
+                "keyword_only": total - llm_available_count,
+                "agreed": agreed_count,
+                "disagreed": llm_available_count - agreed_count,
+                "agreement_rate": (
+                    agreed_count / llm_available_count
+                    if llm_available_count > 0
+                    else 0.0
+                ),
+                "llm_winner_count": llm_winner_count,
+                "keyword_winner_count": total - llm_winner_count,
+            },
+            "comparisons": [asdict(c) for c in self._current_cycle_comparisons],
+        }
+
+        log_path.write_text(json.dumps(log_data, indent=2), encoding="utf-8")
+        return log_path
+
+    def get_current_comparisons(self) -> list[ClassificationComparison]:
+        """Get the list of comparisons from the current/last scan cycle.
+
+        Returns:
+            List of ClassificationComparison objects.
+        """
+        return self._current_cycle_comparisons
 
     @staticmethod
     def _extract_pdf_text(filepath: Path, max_chars: int = 2000) -> str:

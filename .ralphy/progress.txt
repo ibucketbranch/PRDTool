@@ -2766,3 +2766,26 @@ Task completed successfully.
 - Updated organizer/__init__.py to export new module functions
 - All 30 tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-03
+- Implemented A/B comparison logging for LLM vs keyword classification (Phase 16.2)
+  - Added `ClassificationComparison` dataclass to `inbox_processor.py`
+    - Fields: filename, llm_result, keyword_result, agreed, winner, timestamp
+    - Supports tracking comparison results between LLM and keyword classification
+  - Added `ab_comparison_enabled` and `comparison_logs_dir` parameters to `InboxProcessor.__init__()`
+  - Implemented `_classify_with_ab_comparison()` method
+    - Runs both LLM and keyword classification for each file
+    - Records comparison results for analysis
+  - Implemented `_save_comparison_log()` method
+    - Saves comparison results to `.organizer/agent/logs/llm_comparison_{cycle_id}.json`
+    - Includes summary statistics: total_files, llm_available, agreed, disagreed, agreement_rate
+  - Added `get_current_comparisons()` method to retrieve comparison results
+  - Updated `scan()` method to accept optional `cycle_id` parameter
+  - Exported `ClassificationComparison` and other inbox types from `organizer/__init__.py`
+- Created 18 new tests in `tests/test_organizer_inbox.py`:
+  - `TestClassificationComparison`: dataclass creation, optional fields, auto timestamp
+  - `TestABComparisonMode`: flag acceptance, runs both methods, detects disagreement, keyword fallback
+  - `TestABComparisonLogging`: log file creation, summary statistics, comparisons list
+  - `TestGetCurrentComparisons`: returns list, after scan, reset on new scan
+- All 43 tests pass, linting passes
+- Task completed successfully

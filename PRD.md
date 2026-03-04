@@ -665,7 +665,7 @@ A web-based dashboard that:
   - Prompt: given filename + first 500 chars of content + available bins/subcategories, return JSON `{bin, subcategory, confidence, reason}`
   - Escalation: if T1 confidence < 0.75, re-classify with **T2 Smart** using full content
   - Fallback: if LLM unavailable, existing keyword `ROUTING_RULES` still work as-is
-- [ ] A/B comparison logging during rollout
+- [x] A/B comparison logging during rollout
   - For each file: run LLM classification AND keyword matching; log both results
   - `ClassificationComparison` dataclass: filename, llm_result, keyword_result, agreed (bool), winner (used for routing)
   - Comparison log stored at `.organizer/agent/logs/llm_comparison_{cycle_id}.json`
