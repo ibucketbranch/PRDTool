@@ -575,7 +575,7 @@ A web-based dashboard that:
   - After analysis, **T2 Smart** generates plain-English strategy description:
     `"Summarize this organizational strategy in 2-3 sentences for a non-technical user: {structure_json}"`
   - Stored in `learned_structure.json` as `strategy_description`; displayed in dashboard
-- [ ] Create `organizer/learned_rules.py` module
+- [x] Create `organizer/learned_rules.py` module
   - `LearnedRuleStore` class: load/save from `.organizer/agent/learned_routing_rules.json`
   - `match(filename, content_signals) -> tuple[destination, confidence]`
   - Merge priority: learned rules → user overrides → built-in taxonomy → hardcoded `ROUTING_RULES`

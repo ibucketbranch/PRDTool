@@ -3430,3 +3430,27 @@ Task completed successfully.
   - All 45 tests pass, linting passes
   - Task was implemented as part of structure_analyzer.py module but not marked complete
   - Updated PRD to mark task as complete
+
+## 2026-03-05
+- Created organizer/learned_rules.py module for Phase 15: Learning-Agent
+  - Implemented LearnedRuleStore class that loads/saves rules from .organizer/agent/learned_routing_rules.json
+  - Implemented match(filename, content_signals) -> tuple[destination, confidence] method
+  - Implemented priority-based matching: learned rules → user overrides → built-in taxonomy → hardcoded ROUTING_RULES
+  - Implemented StoredRule dataclass with support for keyword, glob, and regex patterns
+  - Implemented MatchResult dataclass for detailed match information
+  - Added rule management: add_rule(), remove_rule(), enable_rule(), disable_rule()
+  - Added persistence with automatic save on changes
+  - Added hit count tracking for matched rules
+  - Implemented graceful degradation for missing/corrupt files
+  - Added create_rule_store() and match_file() convenience functions
+- Created tests/test_learned_rules.py with 52 comprehensive unit tests covering:
+  - StoredRule matching for keyword, glob, and regex patterns
+  - LearnedRuleStore initialization and loading
+  - Rule matching with different pattern types
+  - Priority ordering (learned > override > taxonomy > hardcoded)
+  - Content signal matching
+  - Rule management operations
+  - Persistence and hit count tracking
+  - Edge cases and error handling
+- All 52 tests pass, linting passes
+- Task completed successfully
