@@ -709,7 +709,7 @@ A web-based dashboard that:
   - Prompt version history
 
 #### 16.5 -- Multi-LLM Experiment Framework
-- [ ] Create `organizer/llm_experiment.py` module
+- [x] Create `organizer/llm_experiment.py` module
   - `Experiment` dataclass: name, models_to_compare (list of model names), test_files (list of paths), expected_results (optional ground truth)
   - `run_experiment(experiment) -> ExperimentResult`: run all models against all test files, collect results
   - `ExperimentResult`: per-file per-model results, agreement matrix, latency comparison, accuracy vs ground truth
@@ -727,7 +727,7 @@ A web-based dashboard that:
 - [ ] `test_model_router.py`: tier selection, escalation logic, availability fallback, degradation chain
 - [ ] `test_prompt_registry.py`: prompt loading, variable substitution, missing prompt handling
 - [ ] `test_llm_enrichment.py`: metadata extraction, batch mode, cache hits/misses
-- [ ] `test_llm_experiment.py`: experiment runner, result aggregation, comparison output
+- [x] `test_llm_experiment.py`: experiment runner, result aggregation, comparison output
 - [ ] `test_inbox_processor.py` (update): LLM classification path, escalation from T1 to T2, keyword fallback when Ollama down, A/B comparison logging
 - [ ] `test_scatter_detector.py` (update): LLM validation path, path preservation reasoning
 - [ ] `test_refile_agent.py` (update): LLM drift assessment, destination suggestion when original path gone

@@ -3833,3 +3833,31 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
     - Average response time calculation
 - All 42 tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-05
+- Implemented Phase 16.5: Create organizer/llm_experiment.py module
+  - Created `organizer/llm_experiment.py` with:
+    - `ModelResult` dataclass: per-file per-model result with response_text, parsed_result, confidence, duration_ms, success, error
+    - `FileResults` dataclass: results for all models on a single file with agreement_count() and models_agree() methods
+    - `LatencyStats` dataclass: latency statistics with p50, p95, p99, avg, min, max from_durations() factory method
+    - `Experiment` dataclass: experiment configuration with name, models_to_compare, test_files, expected_results, prompt_template, task_type
+    - `ExperimentResult` dataclass: full experiment results with file_results, latency_stats, agreement_rate, agreement_matrix property, accuracy_vs_ground_truth
+    - `run_experiment(experiment, llm_client)`: runs all models against all test files, calculates statistics, supports progress_callback
+    - `save_experiment_result(result, output_dir)`: saves results to JSON in `.organizer/experiments/`
+    - `load_experiment_result(filepath)`: loads results from JSON
+    - `generate_comparison_table(result)`: generates human-readable comparison table with latency stats and accuracy
+    - `list_experiment_results(experiments_dir)`: lists all saved experiment results
+    - JSON parsing helper that handles plain JSON, markdown code blocks, and graceful failure
+  - Created `tests/test_llm_experiment.py` with 38 tests covering:
+    - ModelResult creation, serialization, error handling
+    - FileResults agreement counting (empty, single, all agree, partial agree, case-insensitive)
+    - LatencyStats percentile calculation (empty, single, multiple durations)
+    - Experiment validation (no models, no files), serialization
+    - ExperimentResult serialization, agreement_matrix calculation
+    - run_experiment with mock LLM client (basic, progress callback, ground truth, failure handling)
+    - save/load experiment results, list results
+    - generate_comparison_table output
+    - JSON parsing (plain, markdown, invalid)
+    - Custom prompt template
+- All 38 tests pass, linting passes
+- Task completed successfully
