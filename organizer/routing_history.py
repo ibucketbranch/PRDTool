@@ -22,7 +22,20 @@ def _now_iso() -> str:
 
 @dataclass
 class RoutingRecord:
-    """A single routing event."""
+    """A single routing event.
+
+    Attributes:
+        filename: Name of the file that was routed.
+        source_path: Original path where the file was located.
+        destination_bin: Target bin/folder where the file was routed.
+        confidence: Confidence score (0.0-1.0) for the routing decision.
+        matched_keywords: Keywords that matched for keyword-based routing.
+        routed_at: ISO timestamp when the routing occurred.
+        status: Current status of the routing (executed, corrected, etc.).
+        reason: LLM's natural language explanation for the routing decision.
+        model_used: Name of the LLM model that made the decision (empty if keyword fallback).
+        used_keyword_fallback: Whether keyword-based routing was used instead of LLM.
+    """
 
     filename: str
     source_path: str
@@ -31,6 +44,10 @@ class RoutingRecord:
     matched_keywords: list[str] = field(default_factory=list)
     routed_at: str = ""
     status: str = "executed"  # executed | corrected | reverted | error | refiled
+    # Explainability fields (Phase 16.4)
+    reason: str = ""  # LLM's explanation for the routing decision
+    model_used: str = ""  # Model that produced this classification
+    used_keyword_fallback: bool = False  # Whether keyword fallback was used
 
     def __post_init__(self) -> None:
         if not self.routed_at:
@@ -49,6 +66,9 @@ class RoutingRecord:
             matched_keywords=data.get("matched_keywords", []),
             routed_at=data.get("routed_at", ""),
             status=data.get("status", "executed"),
+            reason=data.get("reason", ""),
+            model_used=data.get("model_used", ""),
+            used_keyword_fallback=data.get("used_keyword_fallback", False),
         )
 
 
@@ -138,6 +158,9 @@ class RoutingHistory:
         confidence: float,
         matched_keywords: list[str] | None = None,
         original_record: RoutingRecord | None = None,
+        reason: str = "",
+        model_used: str = "",
+        used_keyword_fallback: bool = False,
     ) -> RoutingRecord:
         """Record a refile action, marking the original record as refiled.
 
@@ -152,6 +175,9 @@ class RoutingHistory:
             confidence: Confidence in the refile decision.
             matched_keywords: Keywords that matched (optional).
             original_record: The original routing record (for reference).
+            reason: LLM's explanation for the refile decision.
+            model_used: Model that made the decision.
+            used_keyword_fallback: Whether keyword fallback was used.
 
         Returns:
             The new RoutingRecord for the refile action.
@@ -167,6 +193,9 @@ class RoutingHistory:
             confidence=confidence,
             matched_keywords=matched_keywords or [],
             status="executed",
+            reason=reason,
+            model_used=model_used,
+            used_keyword_fallback=used_keyword_fallback,
         )
 
         # Append and save

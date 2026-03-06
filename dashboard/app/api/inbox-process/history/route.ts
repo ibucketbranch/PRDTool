@@ -13,8 +13,29 @@ const HISTORY_PATH = path.join(
 );
 
 /**
+ * Routing record with explainability fields.
+ */
+interface RoutingRecord {
+  filename: string;
+  destination_bin: string;
+  routed_at: string;
+  confidence: number;
+  status: string;
+  matched_keywords?: string[];
+  // Explainability fields (Phase 16.4)
+  reason?: string;
+  model_used?: string;
+  used_keyword_fallback?: boolean;
+}
+
+/**
  * GET: Return last N routing records from history.
  * Query param: limit (default 50)
+ *
+ * Response includes explainability fields:
+ * - reason: LLM's natural language explanation for the routing decision
+ * - model_used: Name of the LLM model that made the decision
+ * - used_keyword_fallback: Whether keyword-based routing was used instead of LLM
  */
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +44,7 @@ export async function GET(request: NextRequest) {
       200
     );
 
-    let records: unknown[] = [];
+    let records: RoutingRecord[] = [];
     try {
       const data = await fs.readFile(HISTORY_PATH, "utf-8");
       const parsed = JSON.parse(data);
@@ -36,13 +57,26 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const recent = (records as { filename: string; destination_bin: string; routed_at: string; confidence: number; status: string }[])
-      .slice(-limit)
-      .reverse();
+    // Get the most recent records and reverse to show newest first
+    const recent = records.slice(-limit).reverse();
+
+    // Transform to camelCase for frontend consistency
+    const transformed = recent.map((r) => ({
+      filename: r.filename,
+      destinationBin: r.destination_bin,
+      routedAt: r.routed_at,
+      confidence: r.confidence,
+      status: r.status,
+      matchedKeywords: r.matched_keywords || [],
+      // Explainability fields
+      reason: r.reason || "",
+      modelUsed: r.model_used || "",
+      usedKeywordFallback: r.used_keyword_fallback ?? true, // Default to true for legacy records
+    }));
 
     return NextResponse.json({
       success: true,
-      history: recent,
+      history: transformed,
       total: records.length,
     });
   } catch (error) {

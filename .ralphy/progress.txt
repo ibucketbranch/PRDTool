@@ -3779,3 +3779,31 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
     - Error handling
 - All 25 tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-05
+- Implemented Phase 16.4: Add explainability to all routing decisions
+  - Updated `organizer/routing_history.py`:
+    - Added `reason`, `model_used`, and `used_keyword_fallback` fields to `RoutingRecord` dataclass
+    - Updated `from_dict()` to handle new fields with backwards compatibility for legacy records
+    - Updated `record_refile()` to accept and pass through explainability fields
+  - Updated `organizer/inbox_processor.py`:
+    - Modified `execute()` method to pass `reason`, `model_used`, and `used_keyword_fallback` from `InboxRouting` to `RoutingRecord`
+  - Updated `dashboard/app/api/inbox-process/history/route.ts`:
+    - Added `RoutingRecord` interface with explainability fields
+    - Transformed snake_case to camelCase in response (destinationBin, routedAt, modelUsed, usedKeywordFallback)
+    - Default `usedKeywordFallback` to `true` for legacy records (before LLM classification existed)
+  - Updated `dashboard/app/inbox/page.tsx`:
+    - Updated `RoutingRecord` interface with new explainability fields
+    - Added "Model" column to routing history table
+    - Display LLM model name as purple badge, or "Keyword" as orange badge for keyword fallback
+    - Show LLM reasoning text below filename when available
+- Created tests:
+  - `tests/test_routing_history.py` - Added 10 new tests for explainability:
+    - TestRoutingRecordExplainability (6 tests): creation, defaults, to_dict, from_dict, legacy handling, keyword fallback
+    - TestRoutingHistoryExplainability (4 tests): record preservation, refile with explainability, disk persistence, get_recent
+  - `dashboard/__tests__/inbox-history-api.test.ts` - 10 tests for API endpoint:
+    - Empty history handling, reverse chronological order, limit parameter, cap at 200
+    - snake_case to camelCase transformation
+    - LLM classification fields, keyword fallback fields, legacy records, multiple records
+- All 40 tests pass (30 Python + 10 TypeScript), linting passes
+- Task completed successfully

@@ -693,7 +693,7 @@ A web-based dashboard that:
   - `GET /api/llm/models`: list available models with size, tier assignment, availability
   - Show LLM status on Agents page: model name, tier, avg response time, classification count
   - Alert when Ollama is down (system falls back to keyword matching automatically)
-- [ ] Add explainability to all routing decisions
+- [x] Add explainability to all routing decisions
   - Every routing record now includes `reason` (natural language from LLM) and `model_used`
   - Dashboard inbox history shows: filename, destination, confidence, model tier, AND the LLM's explanation
   - Scatter report shows LLM reasoning for each violation

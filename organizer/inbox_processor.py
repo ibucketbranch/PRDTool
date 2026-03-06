@@ -403,6 +403,9 @@ class InboxProcessor:
                     confidence=routing.confidence,
                     matched_keywords=routing.matched_keywords,
                     status="executed",
+                    reason=routing.reason,
+                    model_used=routing.model_used,
+                    used_keyword_fallback=routing.used_keyword_fallback,
                 ))
             except OSError as exc:
                 routing.status = "error"
@@ -415,6 +418,9 @@ class InboxProcessor:
                     confidence=routing.confidence,
                     matched_keywords=routing.matched_keywords,
                     status="error",
+                    reason=routing.reason,
+                    model_used=routing.model_used,
+                    used_keyword_fallback=routing.used_keyword_fallback,
                 ))
         return result
 

@@ -37,10 +37,15 @@ interface ProcessResult {
 
 interface RoutingRecord {
   filename: string;
-  destination_bin: string;
-  routed_at: string;
+  destinationBin: string;
+  routedAt: string;
   confidence: number;
   status: string;
+  matchedKeywords: string[];
+  // Explainability fields (Phase 16.4)
+  reason: string;
+  modelUsed: string;
+  usedKeywordFallback: boolean;
 }
 
 interface LearnedOverride {
@@ -300,20 +305,42 @@ export default function InboxPage() {
                     <th className="text-left py-2">Filename</th>
                     <th className="text-left py-2">Destination</th>
                     <th className="text-left py-2">Confidence</th>
+                    <th className="text-left py-2">Model</th>
                     <th className="text-left py-2">Date</th>
                     <th className="text-left py-2">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.map((r, i) => (
-                    <tr key={i} className="border-b border-neutral-100">
-                      <td className="py-2">{r.filename}</td>
-                      <td className="py-2">{r.destination_bin}</td>
+                    <tr key={i} className="border-b border-neutral-100 group">
+                      <td className="py-2">
+                        <div>{r.filename}</div>
+                        {/* Show LLM reasoning if available */}
+                        {r.reason && (
+                          <div className="text-xs text-neutral-500 mt-1 max-w-xs truncate" title={r.reason}>
+                            {r.reason}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2">{r.destinationBin}</td>
                       <td className="py-2">{(r.confidence * 100).toFixed(0)}%</td>
-                      <td className="py-2 text-neutral-600">{r.routed_at?.slice(0, 19)}</td>
+                      <td className="py-2">
+                        {r.usedKeywordFallback ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                            Keyword
+                          </span>
+                        ) : r.modelUsed ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800" title={r.modelUsed}>
+                            {r.modelUsed.split(":")[0]}
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400 text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="py-2 text-neutral-600">{r.routedAt?.slice(0, 19)}</td>
                       <td className="py-2">
                         <button
-                          onClick={() => setCorrectModal({ filename: r.filename, wrong_bin: r.destination_bin })}
+                          onClick={() => setCorrectModal({ filename: r.filename, wrong_bin: r.destinationBin })}
                           className="text-blue-600 hover:underline text-xs"
                         >
                           Correct
