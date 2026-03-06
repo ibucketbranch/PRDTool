@@ -748,7 +748,7 @@ A web-based dashboard that:
     `to_tsvector` index
   - Gets: stemming ("taxes" finds "tax"), relevance ranking, boolean operators
   - Falls back to `ilike` for short queries (< 3 chars) where FTS is less useful
-- [ ] Update `naturalLanguageSearch()` in `dashboard/lib/supabase.ts`
+- [x] Update `naturalLanguageSearch()` in `dashboard/lib/supabase.ts`
   - Use `to_tsquery()` for text terms instead of `.ilike()` on multiple columns
   - Move organization filtering to SQL using `entities` JSONB column
     (`.contains()`) instead of post-filtering in memory

@@ -912,150 +912,413 @@ describe("naturalLanguageSearch", () => {
     },
   ];
 
-  it("should search with category filter", async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      or: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
-        data: [mockDocuments[0]],
-        error: null,
-      }),
-    };
-    mockSupabaseClient.from.mockReturnValue(mockQuery);
+  // FTS response includes rank field
+  const mockFTSResults = [
+    {
+      id: "1",
+      file_name: "verizon_bill_2024.pdf",
+      current_path: "/bills/verizon_bill_2024.pdf",
+      ai_category: "utility_bill",
+      ai_subcategories: null,
+      ai_summary: "Verizon phone bill for January 2024",
+      entities: { organizations: ["Verizon"], amounts: ["$89.99"] },
+      key_dates: ["2024-01-15"],
+      folder_hierarchy: ["bills"],
+      file_modified_at: null,
+      pdf_modified_date: null,
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+      rank: 0.95,
+    },
+  ];
 
-    const result = await naturalLanguageSearch({
-      originalQuery: "verizon bill 2024",
-      searchTerms: [],
-      category: "utility_bill",
-      years: [2024],
-      organizations: ["Verizon"],
+  describe("FTS Natural Language Search", () => {
+    it("should use FTS RPC for queries with search terms >= 3 chars", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: mockFTSResults,
+        error: null,
+      });
+
+      const result = await naturalLanguageSearch({
+        originalQuery: "verizon bill",
+        searchTerms: ["verizon", "bill"],
+        category: null,
+        years: [],
+        organizations: [],
+      });
+
+      expect(mockSupabaseClient.rpc).toHaveBeenCalledWith(
+        "natural_language_search_fts",
+        expect.objectContaining({
+          search_terms: ["verizon", "bill"],
+          category_filter: null,
+          organization_filters: null,
+        })
+      );
+      expect(result.documents).toHaveLength(1);
+      expect(result.error).toBeUndefined();
     });
 
-    expect(mockQuery.eq).toHaveBeenCalledWith("ai_category", "utility_bill");
-    expect(result.error).toBeUndefined();
-  });
-
-  it("should search with organization filter in text fields", async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      or: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
-        data: mockDocuments,
+    it("should pass category filter to FTS RPC", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: mockFTSResults,
         error: null,
-      }),
-    };
-    mockSupabaseClient.from.mockReturnValue(mockQuery);
+      });
 
-    const result = await naturalLanguageSearch({
-      originalQuery: "verizon",
-      searchTerms: [],
-      category: null,
-      years: [],
-      organizations: ["Verizon"],
+      await naturalLanguageSearch({
+        originalQuery: "verizon bill",
+        searchTerms: ["verizon", "bill"],
+        category: "utility_bill",
+        years: [],
+        organizations: [],
+      });
+
+      expect(mockSupabaseClient.rpc).toHaveBeenCalledWith(
+        "natural_language_search_fts",
+        expect.objectContaining({
+          category_filter: "utility_bill",
+        })
+      );
     });
 
-    expect(mockQuery.or).toHaveBeenCalledWith(
-      expect.stringContaining("ai_summary.ilike.%Verizon%")
-    );
-    expect(result.documents).toHaveLength(1); // Filtered to Verizon only
-  });
-
-  it("should post-filter by years", async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      or: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
-        data: mockDocuments,
+    it("should pass organization filters to FTS RPC", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: mockFTSResults,
         error: null,
-      }),
-    };
-    mockSupabaseClient.from.mockReturnValue(mockQuery);
+      });
 
-    const result = await naturalLanguageSearch({
-      originalQuery: "documents 2024",
-      searchTerms: [],
-      category: null,
-      years: [2024],
-      organizations: [],
+      await naturalLanguageSearch({
+        originalQuery: "verizon bill",
+        searchTerms: ["bill"],
+        category: null,
+        years: [],
+        organizations: ["Verizon"],
+      });
+
+      expect(mockSupabaseClient.rpc).toHaveBeenCalledWith(
+        "natural_language_search_fts",
+        expect.objectContaining({
+          search_terms: ["bill", "Verizon"], // organizations added to search terms
+          organization_filters: ["Verizon"],
+        })
+      );
     });
 
-    // Should filter to only 2024 documents
-    expect(result.documents.every((doc) => doc.key_dates?.some((d) => d.includes("2024")))).toBe(
-      true
-    );
-  });
+    it("should strip rank field from FTS results", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: mockFTSResults,
+        error: null,
+      });
 
-  it("should handle database errors", async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      or: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
+      const result = await naturalLanguageSearch({
+        originalQuery: "verizon",
+        searchTerms: ["verizon"],
+        category: null,
+        years: [],
+        organizations: [],
+      });
+
+      expect(result.documents[0]).not.toHaveProperty("rank");
+      expect(result.documents[0]).toHaveProperty("id");
+      expect(result.documents[0]).toHaveProperty("file_name");
+    });
+
+    it("should fall back to ilike if FTS RPC fails", async () => {
+      // FTS fails
+      mockSupabaseClient.rpc.mockResolvedValue({
         data: null,
-        error: { message: "Database error" },
-      }),
-    };
-    mockSupabaseClient.from.mockReturnValue(mockQuery);
+        error: { message: "Function not found" },
+      });
 
-    const result = await naturalLanguageSearch({
-      originalQuery: "test",
-      searchTerms: ["test"],
-      category: null,
-      years: [],
-      organizations: [],
+      // Fallback succeeds
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: mockDocuments,
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      const result = await naturalLanguageSearch({
+        originalQuery: "verizon",
+        searchTerms: ["verizon"],
+        category: null,
+        years: [],
+        organizations: [],
+      });
+
+      expect(mockSupabaseClient.rpc).toHaveBeenCalled();
+      expect(mockQuery.or).toHaveBeenCalled();
+      expect(result.documents).toHaveLength(2);
     });
 
-    expect(result.documents).toEqual([]);
-    expect(result.error).toBe("Database error");
-  });
+    it("should use ilike fallback for short queries (< 3 chars total)", async () => {
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: mockDocuments,
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
 
-  it("should apply custom limit", async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      or: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
+      await naturalLanguageSearch({
+        originalQuery: "ab",
+        searchTerms: ["ab"],
+        category: null,
+        years: [],
+        organizations: [],
+      });
+
+      // RPC should NOT be called for short queries
+      expect(mockSupabaseClient.rpc).not.toHaveBeenCalled();
+      expect(mockQuery.or).toHaveBeenCalledWith(
+        expect.stringContaining("ai_summary.ilike.%ab%")
+      );
+    });
+
+    it("should pass result_limit to FTS RPC (2x the requested limit)", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
         data: [],
         error: null,
-      }),
-    };
-    mockSupabaseClient.from.mockReturnValue(mockQuery);
+      });
 
-    await naturalLanguageSearch(
-      {
+      await naturalLanguageSearch(
+        {
+          originalQuery: "verizon bill",
+          searchTerms: ["verizon", "bill"],
+          category: null,
+          years: [],
+          organizations: [],
+        },
+        25
+      );
+
+      expect(mockSupabaseClient.rpc).toHaveBeenCalledWith(
+        "natural_language_search_fts",
+        expect.objectContaining({
+          result_limit: 50, // 25 * 2
+        })
+      );
+    });
+
+    it("should still post-filter by years (client-side)", async () => {
+      // FTS returns both docs
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: [
+          { ...mockFTSResults[0] },
+          {
+            id: "2",
+            file_name: "tax_return_2023.pdf",
+            current_path: "/taxes/tax_return_2023.pdf",
+            ai_category: "tax_document",
+            ai_subcategories: ["1040"],
+            ai_summary: "Federal tax return for 2023",
+            entities: { organizations: ["IRS"], amounts: ["$5000"] },
+            key_dates: ["2023-04-15"],
+            folder_hierarchy: ["taxes"],
+            file_modified_at: null,
+            pdf_modified_date: null,
+            created_at: "2023-04-01T00:00:00Z",
+            updated_at: "2023-04-01T00:00:00Z",
+            rank: 0.8,
+          },
+        ],
+        error: null,
+      });
+
+      const result = await naturalLanguageSearch({
+        originalQuery: "documents 2024",
+        searchTerms: ["documents"],
+        category: null,
+        years: [2024],
+        organizations: [],
+      });
+
+      // Should filter to only 2024 documents
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0].id).toBe("1");
+    });
+
+    it("should handle empty search terms with category filter", async () => {
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: [mockDocuments[0]],
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      await naturalLanguageSearch({
+        originalQuery: "",
+        searchTerms: [],
+        category: "utility_bill",
+        years: [],
+        organizations: [],
+      });
+
+      // Should fall back to ilike since no search terms
+      expect(mockSupabaseClient.rpc).not.toHaveBeenCalled();
+    });
+  });
+
+  // Legacy tests for backward compatibility with ilike fallback
+  describe("ilike Fallback", () => {
+    it("should search with category filter using ilike when FTS unavailable", async () => {
+      // Mock FTS to fail so we use ilike
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: null,
+        error: { message: "Function not found" },
+      });
+
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: [mockDocuments[0]],
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      const result = await naturalLanguageSearch({
+        originalQuery: "verizon bill 2024",
+        searchTerms: ["verizon", "bill"],
+        category: "utility_bill",
+        years: [2024],
+        organizations: [],
+      });
+
+      // After FTS fails, falls back to ilike
+      expect(mockQuery.eq).toHaveBeenCalledWith("ai_category", "utility_bill");
+      expect(result.error).toBeUndefined();
+    });
+
+    it("should search with organization filter in text fields using ilike", async () => {
+      // Mock FTS to fail so we use ilike
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: null,
+        error: { message: "Function not found" },
+      });
+
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: mockDocuments,
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      const result = await naturalLanguageSearch({
+        originalQuery: "verizon",
+        searchTerms: [],
+        category: null,
+        years: [],
+        organizations: ["Verizon"],
+      });
+
+      expect(mockQuery.or).toHaveBeenCalledWith(
+        expect.stringContaining("ai_summary.ilike.%Verizon%")
+      );
+      // When using ilike fallback, post-filtering by organizations is applied
+      expect(result.documents).toHaveLength(1);
+    });
+
+    it("should handle database errors in ilike fallback", async () => {
+      // Mock FTS to fail
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: null,
+        error: { message: "RPC failed" },
+      });
+
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: null,
+          error: { message: "Database error" },
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      const result = await naturalLanguageSearch({
         originalQuery: "test",
         searchTerms: ["test"],
         category: null,
         years: [],
         organizations: [],
-      },
-      25
-    );
+      });
 
-    expect(mockQuery.limit).toHaveBeenCalledWith(25);
-  });
-
-  it("should search with multiple search terms", async () => {
-    const mockQuery = {
-      select: vi.fn().mockReturnThis(),
-      or: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({
-        data: [],
-        error: null,
-      }),
-    };
-    mockSupabaseClient.from.mockReturnValue(mockQuery);
-
-    await naturalLanguageSearch({
-      originalQuery: "important document",
-      searchTerms: ["important"],
-      category: null,
-      years: [],
-      organizations: [],
+      expect(result.documents).toEqual([]);
+      expect(result.error).toBe("Database error");
     });
 
-    expect(mockQuery.or).toHaveBeenCalledWith(
-      expect.stringContaining("ai_summary.ilike.%important%")
-    );
+    it("should apply custom limit in ilike fallback (2x for enrichment merging)", async () => {
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: [],
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      await naturalLanguageSearch(
+        {
+          originalQuery: "ab", // Short query, uses ilike
+          searchTerms: ["ab"],
+          category: null,
+          years: [],
+          organizations: [],
+        },
+        25
+      );
+
+      expect(mockQuery.limit).toHaveBeenCalledWith(50); // 25 * 2
+    });
+
+    it("should search with multiple search terms in ilike when FTS fails", async () => {
+      // Mock FTS to fail
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: null,
+        error: { message: "RPC failed" },
+      });
+
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: [],
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      await naturalLanguageSearch({
+        originalQuery: "important document",
+        searchTerms: ["important", "document"],
+        category: null,
+        years: [],
+        organizations: [],
+      });
+
+      // After FTS fails, falls back to ilike
+      expect(mockSupabaseClient.rpc).toHaveBeenCalled();
+      expect(mockQuery.or).toHaveBeenCalledWith(
+        expect.stringContaining("ai_summary.ilike.%important%")
+      );
+    });
   });
 });
 

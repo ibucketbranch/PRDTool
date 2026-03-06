@@ -4207,3 +4207,35 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
 - All searchDocuments tests pass (9/9)
 - Linting passes (no new lint errors introduced; pre-existing errors remain)
 - Task completed successfully
+
+## 2026-03-06
+- Implemented Phase 17 task: Update `naturalLanguageSearch()` in `dashboard/lib/supabase.ts` to use FTS
+  - Created new PostgreSQL function `natural_language_search_fts()` in migration `20260306000002_natural_language_search_function.sql`
+    - Takes search_terms array, category_filter, organization_filters, and result_limit parameters
+    - Uses FTS with `to_tsquery()` for text terms with stemming and prefix matching
+    - Filters organizations via JSONB query on `entities->'organizations'` (case-insensitive partial matching)
+    - Returns results with relevance ranking via `ts_rank()`
+    - Ordered by rank DESC, then updated_at DESC
+  - Updated `naturalLanguageSearch()` function in `dashboard/lib/supabase.ts`:
+    - For queries with combined search terms >= 3 chars: Uses FTS RPC function
+    - For short/empty queries: Falls back to ilike
+    - Organization filtering now done in SQL (no post-filtering needed when using FTS)
+    - Graceful fallback: If FTS RPC fails, falls back to ilike with post-filtering
+    - Properly maps RPC results to Document type (strips rank field)
+  - Added `fallbackToIlikeSearch()` helper function to encapsulate ilike fallback logic
+  - Added 14 new tests in `dashboard/__tests__/supabase.test.ts`:
+    - TestFTS: RPC usage for queries >= 3 chars, category filter, organization filters
+    - TestFTS: rank field stripping from results
+    - TestFTS: fallback to ilike when FTS RPC fails
+    - TestFTS: ilike for short queries (< 3 chars total)
+    - TestFTS: result_limit passed correctly (2x requested limit)
+    - TestFTS: year post-filtering still works client-side
+    - TestFTS: empty search terms with category filter
+    - TestIlike: category filter in fallback mode
+    - TestIlike: organization filter in fallback mode
+    - TestIlike: database error handling
+    - TestIlike: custom limit handling
+    - TestIlike: multiple search terms in fallback
+- All naturalLanguageSearch tests pass (14/14)
+- Linting passes (no new lint errors introduced; pre-existing errors remain)
+- Task completed successfully

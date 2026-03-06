@@ -1115,6 +1115,7 @@ async function getStatisticsOptimized(): Promise<StatisticsResult> {
 }
 
 // Natural language search with parsed query filters and enrichment data
+// Uses FTS (full-text search) for text terms and JSONB queries for organization filtering
 export async function naturalLanguageSearch(
   parsedQuery: {
     originalQuery: string;
@@ -1132,52 +1133,64 @@ export async function naturalLanguageSearch(
   try {
     const supabase = getSupabaseClient();
 
+    // Combine all search terms (searchTerms + organizations) for FTS
+    const allSearchTerms = [
+      ...parsedQuery.searchTerms,
+      ...parsedQuery.organizations,
+    ].filter((t) => t.trim().length > 0);
+
     // Run database search and enrichment search in parallel
     const [dbResult, enrichmentResults, enrichmentMap] = await Promise.all([
-      // Database search
+      // Database search using FTS RPC function
       (async () => {
-        // Build the query
-        let query = supabase.from("documents").select("*");
+        // Use FTS if we have search terms >= 3 chars total
+        const combinedTermsLength = allSearchTerms.join(" ").trim().length;
+        const shouldUseFTS = combinedTermsLength >= 3;
 
-        // Apply category filter if detected
-        if (parsedQuery.category) {
-          query = query.eq("ai_category", parsedQuery.category);
-        }
+        if (shouldUseFTS) {
+          // Use FTS RPC function for stemming and relevance ranking
+          const { data, error } = await supabase.rpc(
+            "natural_language_search_fts",
+            {
+              search_terms: allSearchTerms.length > 0 ? allSearchTerms : null,
+              category_filter: parsedQuery.category || null,
+              organization_filters:
+                parsedQuery.organizations.length > 0
+                  ? parsedQuery.organizations
+                  : null,
+              result_limit: limit * 2, // Fetch more to allow for enrichment merging
+            }
+          );
 
-        // Build text search conditions
-        const textConditions: string[] = [];
+          if (error) {
+            // Fallback to ilike if FTS RPC fails
+            console.warn(
+              "FTS natural language search failed, falling back to ilike:",
+              error.message
+            );
+            return fallbackToIlikeSearch(
+              supabase,
+              parsedQuery,
+              allSearchTerms,
+              limit
+            );
+          }
 
-        // Add organization search in entities JSONB and other text fields
-        for (const org of parsedQuery.organizations) {
-          // Search in ai_summary, file_name, and current_path
-          textConditions.push(`ai_summary.ilike.%${org}%`);
-          textConditions.push(`file_name.ilike.%${org}%`);
-          textConditions.push(`current_path.ilike.%${org}%`);
-        }
-
-        // Add remaining search terms
-        for (const term of parsedQuery.searchTerms) {
-          textConditions.push(`ai_summary.ilike.%${term}%`);
-          textConditions.push(`file_name.ilike.%${term}%`);
-          textConditions.push(`ai_category.ilike.%${term}%`);
-        }
-
-        // If no category was detected but we have keywords, also search in ai_category
-        if (!parsedQuery.category && parsedQuery.originalQuery) {
-          textConditions.push(
-            `ai_category.ilike.%${parsedQuery.originalQuery.split(" ").join("%")}%`
+          // Map RPC result to expected format (with rank for sorting)
+          return {
+            data: data || [],
+            error: null,
+            usedFTS: true,
+          };
+        } else {
+          // For short/empty queries, use ilike fallback
+          return fallbackToIlikeSearch(
+            supabase,
+            parsedQuery,
+            allSearchTerms,
+            limit
           );
         }
-
-        // Apply text conditions as OR
-        if (textConditions.length > 0) {
-          query = query.or(textConditions.join(","));
-        }
-
-        // Apply limit (fetch more to allow for enrichment merging)
-        query = query.limit(limit * 2);
-
-        return query;
       })(),
       // Enrichment cache search
       searchEnrichmentCache(parsedQuery.originalQuery, parsedQuery, limit),
@@ -1185,21 +1198,32 @@ export async function naturalLanguageSearch(
       getEnrichmentMapByPath(),
     ]);
 
-    const { data, error } = await dbResult;
+    const { data, error, usedFTS } = dbResult as {
+      data: (Document & { rank?: number })[];
+      error: { message: string } | null;
+      usedFTS?: boolean;
+    };
 
     if (error) {
       return { documents: [], error: error.message };
     }
 
-    let documents = data as Document[];
+    // Map documents, stripping rank field from RPC results
+    let documents: Document[] = (data || []).map((row) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { rank, ...doc } = row as Document & { rank?: number };
+      return doc;
+    });
 
     // Post-filter by years if specified (since key_dates is an array)
+    // Note: This still needs to be done client-side as key_dates array filtering is complex
     if (parsedQuery.years.length > 0) {
       documents = filterByYears(documents, parsedQuery.years);
     }
 
-    // Post-filter by organizations in entities JSONB
-    if (parsedQuery.organizations.length > 0) {
+    // Organization filtering is now done in SQL when using FTS
+    // Only post-filter if we fell back to ilike
+    if (!usedFTS && parsedQuery.organizations.length > 0) {
       documents = filterByOrganizations(documents, parsedQuery.organizations);
     }
 
@@ -1246,6 +1270,7 @@ export async function naturalLanguageSearch(
     }
 
     // Sort: prioritize documents with enrichment matches, then by enrichment score
+    // FTS results are already sorted by relevance rank, but enrichment matches should still be prioritized
     documents.sort((a, b) => {
       const scoreA = a.enrichment_match_score || 0;
       const scoreB = b.enrichment_match_score || 0;
@@ -1265,6 +1290,75 @@ export async function naturalLanguageSearch(
       error: err instanceof Error ? err.message : "Unknown error",
     };
   }
+}
+
+/**
+ * Fallback to ilike-based search when FTS is not available or for short queries
+ */
+async function fallbackToIlikeSearch(
+  supabase: SupabaseClient,
+  parsedQuery: {
+    originalQuery: string;
+    searchTerms: string[];
+    category: string | null;
+    years: number[];
+    organizations: string[];
+  },
+  allSearchTerms: string[],
+  limit: number
+): Promise<{
+  data: Document[];
+  error: { message: string } | null;
+  usedFTS: boolean;
+}> {
+  // Build the query
+  let query = supabase.from("documents").select("*");
+
+  // Apply category filter if detected
+  if (parsedQuery.category) {
+    query = query.eq("ai_category", parsedQuery.category);
+  }
+
+  // Build text search conditions
+  const textConditions: string[] = [];
+
+  // Add organization search in entities JSONB and other text fields
+  for (const org of parsedQuery.organizations) {
+    // Search in ai_summary, file_name, and current_path
+    textConditions.push(`ai_summary.ilike.%${org}%`);
+    textConditions.push(`file_name.ilike.%${org}%`);
+    textConditions.push(`current_path.ilike.%${org}%`);
+  }
+
+  // Add remaining search terms
+  for (const term of parsedQuery.searchTerms) {
+    textConditions.push(`ai_summary.ilike.%${term}%`);
+    textConditions.push(`file_name.ilike.%${term}%`);
+    textConditions.push(`ai_category.ilike.%${term}%`);
+  }
+
+  // If no category was detected but we have keywords, also search in ai_category
+  if (!parsedQuery.category && parsedQuery.originalQuery) {
+    textConditions.push(
+      `ai_category.ilike.%${parsedQuery.originalQuery.split(" ").join("%")}%`
+    );
+  }
+
+  // Apply text conditions as OR
+  if (textConditions.length > 0) {
+    query = query.or(textConditions.join(","));
+  }
+
+  // Apply limit (fetch more to allow for enrichment merging)
+  query = query.limit(limit * 2);
+
+  const { data, error } = await query;
+
+  return {
+    data: (data || []) as Document[],
+    error: error ? { message: error.message } : null,
+    usedFTS: false,
+  };
 }
 
 /**
