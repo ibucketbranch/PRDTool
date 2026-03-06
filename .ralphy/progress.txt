@@ -3144,3 +3144,44 @@ Task completed successfully.
     - Integration tests for full workflow
   - All 147 tests pass, linting passes
   - Task "Add tests" for Phase 13 marked complete in PRD.md
+
+## 2026-03-05
+- Completed Phase 14 task: Create `organizer/refile_agent.py` module
+  - Created ReFileAgent class for detecting and handling drifted files
+  - DriftRecord dataclass with: file_path, original_filed_path, current_path, filed_by, filed_at, detected_at, sha256_hash, drift_assessment, reason, model_used, confidence, suggested_destination, original_routing_record
+  - DriftDetectionResult dataclass with drift records, file counts, errors, and model info
+  - DestinationSuggestion dataclass for LLM-powered destination suggestions
+  - detect_drift() method compares routing history against filesystem:
+    - Checks each executed routing record from recent history
+    - Filters by lookback period (default 90 days)
+    - Searches for drifted files by filename + hash
+    - Skips files moved to In-Box (handled by Filing-Agent)
+  - LLM-powered drift assessment with T1 Fast:
+    - Prompt: "Was this move intentional or accidental?"
+    - Returns JSON with likely_intentional, confidence, reason
+    - Escalation to T2 Smart when confidence < 0.75
+  - Graceful degradation with keyword fallback:
+    - Desktop/Downloads/Trash paths = likely_accidental
+    - Taxonomy paths (VA, Finances Bin, Work Bin) = likely_intentional
+    - Near-root paths = likely_accidental
+  - suggest_destination() for files when original path gone:
+    - T2 Smart LLM suggestion with content preview
+    - Keyword fallback based on filename patterns
+  - Convenience functions: detect_drift(), save_drift_report(), load_drift_report()
+- Created tests/test_refile_agent.py with 54 tests covering:
+  - DriftRecord: creation, properties, serialization, roundtrip
+  - DriftDetectionResult: creation, filtering by assessment type
+  - DestinationSuggestion: creation
+  - ReFileAgentInit: basic, LLM client, custom router, use_llm flag, thresholds
+  - PathHeuristics: inbox detection, taxonomy path, accidental location
+  - KeywordFallback: Desktop, Downloads, taxonomy, root level
+  - LLMAssessment: accidental, intentional, failure handling
+  - Escalation: T1 to T2 on low confidence, no escalation on high confidence
+  - DestinationSuggestionLogic: LLM and keyword-based for tax, resume, VA, unknown
+  - AssessSingleFile: keyword and LLM paths
+  - JSONParsing: clean, markdown, surrounded, invalid
+  - ReportPersistence: save, load, parent dir creation
+  - DetectDriftFunction: basic and with LLM
+  - EdgeCases: empty history, inbox skip, invalid timestamp, lookback, status filter, confidence clamp, LLM unavailable
+- All 54 tests pass, linting passes
+- Task "Create `organizer/refile_agent.py` module" marked complete in PRD.md

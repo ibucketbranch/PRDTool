@@ -520,7 +520,7 @@ A web-based dashboard that:
 > (taxonomy path = intentional, Desktop/Downloads = accidental) if LLM
 > unavailable.
 
-- [ ] Create `organizer/refile_agent.py` module
+- [x] Create `organizer/refile_agent.py` module
   - `DriftRecord` dataclass: file_path, original_filed_path, current_path, filed_by, filed_at, detected_at, sha256_hash, drift_assessment, reason, model_used
   - `detect_drift(routing_history, filesystem, llm_client) -> list[DriftRecord]`: for each executed routing record, check if file still exists at filed path; search by filename + hash if not; for found drifted files, call **T1 Fast**:
     `"File '{filename}' was filed at '{original_path}' on {filed_date}. It is now at '{current_path}'. Was this move intentional (user reorganized) or accidental (drag-drop)? Reply JSON {likely_intentional: bool, confidence, reason}"`
