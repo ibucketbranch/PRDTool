@@ -2919,3 +2919,48 @@ Task completed successfully.
 - All 11 DNA-related tests in test_continuous_agent.py pass
 - All 85 tests in test_continuous_agent.py + test_file_dna.py pass
 - Task 'Wire DNA registration into agent cycle' marked complete in PRD.md
+
+## 2026-03-05
+- Created `organizer/dedup_engine.py` module (Phase 13: Intelligence-Agent)
+  - `DuplicateGroup` dataclass with all required fields:
+    - sha256_hash, canonical_path, duplicate_paths, wasted_bytes
+    - to_dict()/from_dict() for JSON serialization
+    - file_count property for total files in group
+  - `FuzzyDuplicateGroup` dataclass for LLM-detected duplicates:
+    - representative_path, similar_paths, relationship, confidence
+    - reason, model_used, wasted_bytes
+    - Relationships: exact_duplicate, version_of, related, unrelated
+  - `get_archive_path(base_archive_dir, file_hash, filename)`:
+    - Generates Archive/Duplicates/{hash_prefix}/{filename} paths
+    - Uses first 8 chars of SHA-256 hash as prefix
+  - `find_exact_duplicates(dna_registry) -> list[DuplicateGroup]`:
+    - Groups files by SHA-256 hash (deterministic, no LLM needed)
+    - Shortest path becomes canonical
+    - Calculates wasted bytes from duplicate file sizes
+    - Sorted by wasted bytes (highest first)
+  - `find_fuzzy_duplicates(dna_registry, llm_client, ...)`:
+    - Pre-filters candidates by filename similarity (SequenceMatcher)
+    - LLM analysis with T2 Smart for content comparison
+    - Prompt follows PRD specification for relationship detection
+    - Graceful degradation: keyword fallback when LLM unavailable
+    - Keyword analysis uses copy patterns, content overlap, tag overlap
+  - `DedupEngine` class for full dedup workflow:
+    - Combines exact hash matching with LLM-powered fuzzy detection
+    - Supports model_router and prompt_registry
+    - get_report() returns complete duplicate statistics
+    - get_archive_path_for() generates archive paths
+- Created 43 tests in `tests/test_dedup_engine.py`:
+  - TestDuplicateGroup: creation, serialization, roundtrip
+  - TestFuzzyDuplicateGroup: creation, serialization, roundtrip
+  - TestGetArchivePath: path generation with hash prefix
+  - TestFilenameSimilarity: copy patterns, different extensions, similarity
+  - TestFindExactDuplicates: hash grouping, canonical selection, wasted bytes
+  - TestFindFuzzyCandidates: similar names, skip exact dupes, skip marked dupes
+  - TestAnalyzePairWithKeywords: copy pattern, content overlap, unrelated
+  - TestFindFuzzyDuplicatesWithKeywords: keyword fallback
+  - TestFindFuzzyDuplicatesWithLLM: LLM success, unrelated, unavailable fallback
+  - TestDedupEngine: initialization, empty registry, exact dupes, archive paths
+  - TestDedupEngineWithLLM: LLM integration, model router usage
+  - TestIntegration: full workflow with real files
+- All 43 tests pass, linting passes
+- Task "Create organizer/dedup_engine.py module" marked complete in PRD

@@ -486,7 +486,7 @@ A web-based dashboard that:
 - [x] Wire DNA registration into agent cycle
   - After each successful inbox move or consolidation, register file's DNA
   - During full scan, register newly discovered files with `origin="scan"`
-- [ ] Create `organizer/dedup_engine.py` module
+- [x] Create `organizer/dedup_engine.py` module
   - `DuplicateGroup` dataclass: sha256_hash, canonical_path, duplicate_paths, wasted_bytes
   - `find_exact_duplicates(dna_registry) -> list[DuplicateGroup]`: group by hash (deterministic — no LLM needed)
   - `find_fuzzy_duplicates(dna_registry, llm_client, threshold=0.85) -> list[DuplicateGroup]`: for candidate pairs with similar filenames, call **T2 Smart**:
