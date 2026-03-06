@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import {
   DocumentBrowserFilter,
   DEFAULT_DOCUMENT_FILTERS,
@@ -23,7 +23,12 @@ describe("DocumentBrowserFilter", () => {
   const mockOnClearFilters = vi.fn();
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders toggle button", () => {
@@ -151,7 +156,7 @@ describe("DocumentBrowserFilter", () => {
     });
   });
 
-  it("calls onFilterChange when search is entered", () => {
+  it("calls onFilterChange when search is entered (after debounce)", () => {
     render(
       <DocumentBrowserFilter
         categories={mockCategories}
@@ -165,10 +170,110 @@ describe("DocumentBrowserFilter", () => {
     fireEvent.change(screen.getByLabelText("Search"), {
       target: { value: "test query" },
     });
+
+    // Should not call onFilterChange immediately (debounced)
+    expect(mockOnFilterChange).not.toHaveBeenCalled();
+
+    // After 300ms debounce, should call onFilterChange
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     expect(mockOnFilterChange).toHaveBeenCalledWith({
       ...mockFilters,
       search: "test query",
     });
+  });
+
+  it("updates search input immediately for responsive UI", () => {
+    render(
+      <DocumentBrowserFilter
+        categories={mockCategories}
+        contextBins={mockContextBins}
+        years={mockYears}
+        filters={mockFilters}
+        onFilterChange={mockOnFilterChange}
+        onClearFilters={mockOnClearFilters}
+      />
+    );
+    const searchInput = screen.getByLabelText("Search") as HTMLInputElement;
+    fireEvent.change(searchInput, {
+      target: { value: "typing..." },
+    });
+
+    // Input value should update immediately for responsive feedback
+    expect(searchInput.value).toBe("typing...");
+  });
+
+  it("debounces rapid search input changes", () => {
+    render(
+      <DocumentBrowserFilter
+        categories={mockCategories}
+        contextBins={mockContextBins}
+        years={mockYears}
+        filters={mockFilters}
+        onFilterChange={mockOnFilterChange}
+        onClearFilters={mockOnClearFilters}
+      />
+    );
+    const searchInput = screen.getByLabelText("Search");
+
+    // Rapid typing simulation
+    fireEvent.change(searchInput, { target: { value: "t" } });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    fireEvent.change(searchInput, { target: { value: "te" } });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    fireEvent.change(searchInput, { target: { value: "tes" } });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    fireEvent.change(searchInput, { target: { value: "test" } });
+
+    // Should not call onFilterChange during rapid typing
+    expect(mockOnFilterChange).not.toHaveBeenCalled();
+
+    // After 300ms from last change, should call with final value
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(mockOnFilterChange).toHaveBeenCalledTimes(1);
+    expect(mockOnFilterChange).toHaveBeenCalledWith({
+      ...mockFilters,
+      search: "test",
+    });
+  });
+
+  it("syncs local search state when filters.search changes externally", () => {
+    const { rerender } = render(
+      <DocumentBrowserFilter
+        categories={mockCategories}
+        contextBins={mockContextBins}
+        years={mockYears}
+        filters={{ ...mockFilters, search: "initial" }}
+        onFilterChange={mockOnFilterChange}
+        onClearFilters={mockOnClearFilters}
+      />
+    );
+
+    const searchInput = screen.getByLabelText("Search") as HTMLInputElement;
+    expect(searchInput.value).toBe("initial");
+
+    // Simulate external change (e.g., clear all filters)
+    rerender(
+      <DocumentBrowserFilter
+        categories={mockCategories}
+        contextBins={mockContextBins}
+        years={mockYears}
+        filters={{ ...mockFilters, search: "" }}
+        onFilterChange={mockOnFilterChange}
+        onClearFilters={mockOnClearFilters}
+      />
+    );
+
+    expect(searchInput.value).toBe("");
   });
 
   it("calls onFilterChange when start year is selected", () => {
@@ -349,7 +454,7 @@ describe("DocumentTable", () => {
       expect(desktopView.textContent).toContain("Category");
       expect(desktopView.textContent).toContain("Dates");
       expect(desktopView.textContent).toContain("Context Bin");
-      expect(desktopView.textContent).toContain("Created");
+      expect(desktopView.textContent).toContain("Modified");
     }
   });
 

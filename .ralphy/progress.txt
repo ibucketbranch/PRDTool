@@ -4239,3 +4239,34 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
 - All naturalLanguageSearch tests pass (14/14)
 - Linting passes (no new lint errors introduced; pre-existing errors remain)
 - Task completed successfully
+
+## 2026-03-06
+- Completed Phase 17 task: Add debouncing to Document Browser search input
+  - Created `dashboard/hooks/useDebounce.ts` - custom hook for debouncing values
+    - Returns initial value immediately
+    - Updates after specified delay (default 300ms)
+    - Resets timer on rapid value changes
+  - Created `dashboard/hooks/index.ts` for exports
+  - Updated `dashboard/components/DocumentBrowserFilter.tsx`:
+    - Added local state `localSearch` for immediate UI feedback
+    - Used `useDebounce` hook with 300ms delay
+    - Used refs to avoid stale closures in effects
+    - Syncs local search state when `filters.search` changes externally
+    - Only calls `onFilterChange` after debounce completes
+  - Created `dashboard/__tests__/useDebounce.test.ts` with 9 tests:
+    - Returns initial value immediately
+    - Does not update before delay
+    - Updates after delay
+    - Resets timer on rapid changes
+    - Uses default 300ms delay
+    - Works with different types (number, object)
+    - Respects custom delay values
+    - Handles empty string values
+  - Updated `dashboard/__tests__/document-browser.test.tsx`:
+    - Updated search test to account for debouncing
+    - Added test for immediate input feedback
+    - Added test for debouncing rapid input changes
+    - Added test for syncing local state on external filter changes
+    - Fixed pre-existing test for "Modified" vs "Created" header
+- All 52 tests pass (useDebounce: 9, document-browser: 43)
+- Linting passes (only pre-existing errors in other files)

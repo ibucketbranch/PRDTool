@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useDebounce } from "@/hooks";
 
 export interface DocumentFilterOptions {
   category: string | null;
@@ -36,6 +37,35 @@ export function DocumentBrowserFilter({
   onClearFilters,
 }: DocumentBrowserFilterProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+
+  // Local state for search input (immediate UI feedback)
+  const [localSearch, setLocalSearch] = useState(filters.search);
+
+  // Debounce the search value (300ms delay)
+  const debouncedSearch = useDebounce(localSearch, 300);
+
+  // Use refs to avoid stale closures in the effect
+  const filtersRef = useRef(filters);
+  const onFilterChangeRef = useRef(onFilterChange);
+  useEffect(() => {
+    filtersRef.current = filters;
+    onFilterChangeRef.current = onFilterChange;
+  }, [filters, onFilterChange]);
+
+  // Sync local search state when filters.search changes externally (e.g., clear all)
+  useEffect(() => {
+    setLocalSearch(filters.search);
+  }, [filters.search]);
+
+  // Trigger filter change when debounced search value changes
+  useEffect(() => {
+    if (debouncedSearch !== filtersRef.current.search) {
+      onFilterChangeRef.current({
+        ...filtersRef.current,
+        search: debouncedSearch,
+      });
+    }
+  }, [debouncedSearch]);
 
   const hasActiveFilters =
     filters.category !== null ||
@@ -94,10 +124,8 @@ export function DocumentBrowserFilter({
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onFilterChange({
-      ...filters,
-      search: e.target.value,
-    });
+    // Update local state immediately for responsive UI
+    setLocalSearch(e.target.value);
   };
 
   // Sort years ascending for dropdown
@@ -172,7 +200,7 @@ export function DocumentBrowserFilter({
             <input
               id="search-filter"
               type="text"
-              value={filters.search}
+              value={localSearch}
               onChange={handleSearchChange}
               placeholder="Search by name, path, or summary..."
               className="w-full px-3 py-2 border border-neutral-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"

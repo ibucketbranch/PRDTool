@@ -753,7 +753,7 @@ A web-based dashboard that:
   - Move organization filtering to SQL using `entities` JSONB column
     (`.contains()`) instead of post-filtering in memory
   - Use `ts_rank()` to order results by relevance
-- [ ] Add debouncing to Document Browser search input (`dashboard/app/browse/page.tsx`)
+- [x] Add debouncing to Document Browser search input (`dashboard/app/browse/page.tsx`)
   - 300ms debounce on the search input `onChange` handler
   - Prevents firing a Supabase query on every keystroke
 - [ ] Add pagination to Search page results (`dashboard/app/search/page.tsx`)
