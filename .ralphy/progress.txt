@@ -4104,3 +4104,84 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
   - ✅ LLM drift assessment
   - ✅ Destination suggestion when original path gone
 - Task marked complete in PRD.md
+
+---
+
+## Phase 16.6: test_learning_agent.py LLM Tests Update
+**Date:** 2026-03-05
+**Status:** Complete
+
+### Summary
+- Updated Phase 16.6: `test_learning_agent.py` with comprehensive LLM tests (32 new tests added)
+  
+### New Test Classes Added:
+  
+**TestLLMDomainDetectionPath** (3 tests):
+- `test_llm_domain_uses_t2_smart_model`: Verifies T2 Smart model selection via router
+- `test_llm_domain_captures_model_used_field`: Verifies model_used field in DomainContext
+- `test_llm_domain_evidence_list_captured`: Verifies evidence list from LLM response
+
+**TestLLMDomainUnavailability** (5 tests):
+- `test_ollama_down_uses_keyword_fallback`: Keyword fallback when Ollama down
+- `test_ollama_check_exception_falls_back_to_keywords`: Exception handling during check
+- `test_no_llm_client_uses_keyword_fallback`: No LLM client triggers fallback
+- `test_use_llm_false_bypasses_llm`: Explicit LLM bypass with use_llm=False
+- `test_llm_generate_fails_falls_back_to_keywords`: Generate failure fallback
+
+**TestPromptRegistryDomainIntegration** (2 tests):
+- `test_uses_prompt_from_registry_when_available`: Custom prompt loading for domain detection
+- `test_falls_back_to_inline_prompt_when_registry_missing`: Inline prompt fallback
+
+**TestJSONParsingDomainEdgeCases** (6 tests):
+- `test_parse_json_with_extra_text_before`: JSON extraction with preamble text
+- `test_parse_json_with_nested_braces_in_evidence`: Nested brace handling
+- `test_confidence_as_string_handled`: String confidence handling
+- `test_invalid_domain_defaults_to_generic_business`: Invalid domain fallback
+- `test_negative_confidence_clamped_to_zero`: Negative confidence clamping
+- `test_confidence_above_one_clamped`: Confidence > 1.0 clamping
+
+**TestLLMRuleGenerationPath** (2 tests):
+- `test_llm_rule_uses_t2_smart_model`: Verifies T2 Smart model for rule generation
+- `test_llm_rule_captures_reasoning_field`: Verifies reasoning captured in rules
+
+**TestLLMRuleUnavailability** (2 tests):
+- `test_ollama_down_uses_pattern_fallback`: Pattern fallback when Ollama down
+- `test_llm_generate_fails_uses_pattern_fallback`: Pattern fallback on generate failure
+
+**TestPromptRegistryRuleIntegration** (1 test):
+- `test_uses_prompt_from_registry_for_rules`: Custom prompt loading for rule generation
+
+**TestJSONParsingRuleEdgeCases** (3 tests):
+- `test_parse_rules_with_empty_pattern_skipped`: Empty pattern handling
+- `test_parse_rules_non_dict_items_skipped`: Non-dict item handling
+- `test_max_rules_per_folder_respected`: Max rules limit enforcement
+
+**TestLLMNarrationPath** (2 tests):
+- `test_narration_uses_t2_smart_model`: Verifies T2 Smart for narration
+- `test_narration_model_used_captured`: Verifies model_used in snapshot
+
+**TestLLMNarrationUnavailability** (2 tests):
+- `test_ollama_down_generates_keyword_narration`: Keyword narration when Ollama down
+- `test_generate_narration_false_skips_llm`: Skip LLM when generate_narration=False
+
+**TestPromptRegistryNarrationIntegration** (1 test):
+- `test_uses_prompt_from_registry_for_narration`: Custom prompt for narration
+
+**TestNarrationEdgeCases** (3 tests):
+- `test_narration_strips_markdown_code_blocks`: Markdown cleanup
+- `test_keyword_narration_includes_file_types`: File types in keyword narration
+- `test_keyword_narration_detects_date_structure`: Date structure detection
+
+### Test Summary:
+- Total: 59 tests pass (27 original + 32 new)
+- All linting passes (ruff check)
+
+### PRD Requirements Covered:
+- ✅ LLM domain detection (T2 Smart model usage, evidence capture, fallback)
+- ✅ LLM rule generation (T2 Smart model usage, reasoning capture, pattern fallback)
+- ✅ Strategy narration (T2 Smart model, markdown cleanup, keyword fallback)
+- ✅ Prompt registry integration for all three components
+- ✅ Graceful degradation (Ollama unavailable, LLM failures, malformed JSON)
+- ✅ Learned rule merge priority (already covered in original tests)
+
+- Task marked complete in PRD.md

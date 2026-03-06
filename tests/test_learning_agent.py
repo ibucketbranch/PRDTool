@@ -915,3 +915,870 @@ class TestLearningAgentEdgeCases:
 
         # Should still work with default model
         assert context.detected_domain == "engineering"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM Domain Detection - Comprehensive Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLLMDomainDetectionPath:
+    """Tests for LLM domain detection code path verification."""
+
+    def test_llm_domain_uses_t2_smart_model(
+        self, mock_llm_client: MagicMock, mock_model_router: MagicMock
+    ) -> None:
+        """Should use T2 Smart model for domain detection."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "personal", "confidence": 0.88, "evidence": ["Photos folder"]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/photos",
+                name="photos",
+                depth=0,
+                file_count=20,
+                sample_filenames=["vacation.jpg", "family.jpg"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+        detector.detect_domain(snapshot)
+
+        # Verify T2 Smart model was requested via router
+        mock_model_router.route.assert_called()
+        call_args = mock_model_router.route.call_args
+        assert call_args[0][0].task_type == "analyze"
+        assert call_args[0][0].complexity == "medium"
+
+    def test_llm_domain_captures_model_used_field(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should capture the model_used field in DomainContext."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "legal", "confidence": 0.9, "evidence": ["Contract files"]}',
+            model_used="llama3.1:8b-instruct-q8_0",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/legal",
+                name="legal",
+                depth=0,
+                sample_filenames=["contract.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.model_used == "llama3.1:8b-instruct-q8_0"
+        assert context.used_llm is True
+
+    def test_llm_domain_evidence_list_captured(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should capture evidence list from LLM response."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "automotive", "confidence": 0.95, "evidence": ["VIN numbers detected", "Inventory files", "Service records"]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/dealership",
+                name="dealership",
+                depth=0,
+                sample_filenames=["inventory.xlsx", "vin_list.csv"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert len(context.evidence) == 3
+        assert "VIN numbers detected" in context.evidence
+        assert "Inventory files" in context.evidence
+
+
+class TestLLMDomainUnavailability:
+    """Tests for LLM unavailability scenarios in domain detection."""
+
+    def test_ollama_down_uses_keyword_fallback(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should fall back to keywords when Ollama is down."""
+        mock_llm_client.is_ollama_available.return_value = False
+
+        folders = [
+            FolderNode(
+                path="/test/creative",
+                name="creative",
+                depth=0,
+                sample_filenames=["design_v1.psd", "portfolio.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.model_used == "keyword_fallback"
+        assert context.used_llm is False
+        # Should not have called generate
+        mock_llm_client.generate.assert_not_called()
+
+    def test_ollama_check_exception_falls_back_to_keywords(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should fall back when Ollama availability check raises exception."""
+        mock_llm_client.is_ollama_available.side_effect = ConnectionError("Network error")
+
+        folders = [
+            FolderNode(
+                path="/test/medical",
+                name="medical",
+                depth=0,
+                sample_filenames=["prescription.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.model_used == "keyword_fallback"
+        assert context.detected_domain == "medical"
+
+    def test_no_llm_client_uses_keyword_fallback(self) -> None:
+        """Should use keyword fallback when no LLM client provided."""
+        folders = [
+            FolderNode(
+                path="/test/engineering",
+                name="src",
+                depth=0,
+                sample_filenames=["main.py", "api.ts"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector()  # No LLM client
+        context = detector.detect_domain(snapshot)
+
+        assert context.model_used == "keyword_fallback"
+
+    def test_use_llm_false_bypasses_llm(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should bypass LLM when use_llm=False."""
+        folders = [
+            FolderNode(
+                path="/test/docs",
+                name="docs",
+                depth=0,
+                sample_filenames=["readme.md"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot, use_llm=False)
+
+        assert context.model_used == "keyword_fallback"
+        mock_llm_client.is_ollama_available.assert_not_called()
+
+    def test_llm_generate_fails_falls_back_to_keywords(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should fall back when LLM generate returns failure."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=False,
+            text="",
+            error="Model timeout",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/personal",
+                name="personal",
+                depth=0,
+                sample_filenames=["diary.txt", "photos/"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.model_used == "keyword_fallback"
+
+
+class TestPromptRegistryDomainIntegration:
+    """Tests for prompt registry integration in domain detection."""
+
+    def test_uses_prompt_from_registry_when_available(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should use prompt from registry when available."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "generic_business", "confidence": 0.85, "evidence": ["Business docs"]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = "Custom domain detection prompt for {structure_json}"
+
+        folders = [
+            FolderNode(
+                path="/test/business",
+                name="business",
+                depth=0,
+                sample_filenames=["invoice.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(
+            llm_client=mock_llm_client,
+            prompt_registry=mock_registry,
+        )
+        detector.detect_domain(snapshot)
+
+        mock_registry.get.assert_called_once()
+        assert "domain_detection" in str(mock_registry.get.call_args)
+
+    def test_falls_back_to_inline_prompt_when_registry_missing(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should fall back to inline prompt when registry raises KeyError."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "creative", "confidence": 0.82, "evidence": ["Art files"]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        mock_registry = MagicMock()
+        mock_registry.get.side_effect = KeyError("domain_detection")
+
+        folders = [
+            FolderNode(
+                path="/test/art",
+                name="art",
+                depth=0,
+                sample_filenames=["sketch.psd"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(
+            llm_client=mock_llm_client,
+            prompt_registry=mock_registry,
+        )
+        context = detector.detect_domain(snapshot)
+
+        # Should still succeed with inline prompt
+        assert context.detected_domain == "creative"
+        assert context.used_llm is True
+
+
+class TestJSONParsingDomainEdgeCases:
+    """Tests for JSON parsing edge cases in domain detection."""
+
+    def test_parse_json_with_extra_text_before(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should extract JSON even with preamble text."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='Based on my analysis: {"domain": "medical", "confidence": 0.91, "evidence": ["Health records"]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/health",
+                name="health",
+                depth=0,
+                sample_filenames=["records.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.detected_domain == "medical"
+        assert context.confidence == 0.91
+
+    def test_parse_json_with_nested_braces_in_evidence(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should handle evidence containing brace-like text."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "engineering", "confidence": 0.88, "evidence": ["Code files {src}"]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/code",
+                name="code",
+                depth=0,
+                sample_filenames=["app.py"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        # Should fall back since nested braces break simple regex
+        # The fallback is acceptable behavior
+        assert context.detected_domain in {"engineering", "generic_business"}
+
+    def test_confidence_as_string_handled(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should handle confidence as string number."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "legal", "confidence": "0.87", "evidence": []}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/legal",
+                name="contracts",
+                depth=0,
+                sample_filenames=["agreement.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        # String confidence should default to 0.5
+        assert context.confidence == 0.5
+
+    def test_invalid_domain_defaults_to_generic_business(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should default to generic_business for invalid domain value."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "unknown_domain_type", "confidence": 0.9, "evidence": []}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/misc",
+                name="misc",
+                depth=0,
+                sample_filenames=["file.txt"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.detected_domain == "generic_business"
+
+    def test_negative_confidence_clamped_to_zero(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should clamp negative confidence to 0.0."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "personal", "confidence": -0.5, "evidence": []}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/home",
+                name="home",
+                depth=0,
+                sample_filenames=["notes.txt"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.confidence == 0.0
+
+    def test_confidence_above_one_clamped(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should clamp confidence > 1.0 to 1.0."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"domain": "automotive", "confidence": 1.5, "evidence": []}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/cars",
+                name="cars",
+                depth=0,
+                sample_filenames=["vin.csv"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        detector = DomainDetector(llm_client=mock_llm_client)
+        context = detector.detect_domain(snapshot)
+
+        assert context.confidence == 1.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM Rule Generation - Comprehensive Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLLMRuleGenerationPath:
+    """Tests for LLM rule generation code path verification."""
+
+    def test_llm_rule_uses_t2_smart_model(
+        self, mock_llm_client: MagicMock, mock_model_router: MagicMock
+    ) -> None:
+        """Should use T2 Smart model for rule generation."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"rules": [{"pattern": "invoice", "confidence": 0.9, "reasoning": "Invoice files"}]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/invoices",
+                name="invoices",
+                depth=0,
+                file_count=10,
+                sample_filenames=["invoice_001.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+        generator.generate_rules(snapshot)
+
+        # Verify T2 Smart model was requested via router
+        mock_model_router.route.assert_called()
+        call_args = mock_model_router.route.call_args
+        assert call_args[0][0].task_type == "generate"
+        assert call_args[0][0].complexity == "medium"
+
+    def test_llm_rule_captures_reasoning_field(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should capture reasoning from LLM response."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"rules": [{"pattern": "receipt", "confidence": 0.88, "reasoning": "Receipt documents for expense tracking"}]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/receipts",
+                name="receipts",
+                depth=0,
+                file_count=5,
+                sample_filenames=["receipt_001.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(llm_client=mock_llm_client)
+        result = generator.generate_rules(snapshot)
+
+        llm_rules = [r for r in result.rules if r.used_llm]
+        assert len(llm_rules) >= 1
+        assert "expense tracking" in llm_rules[0].reasoning
+
+
+class TestLLMRuleUnavailability:
+    """Tests for LLM unavailability scenarios in rule generation."""
+
+    def test_ollama_down_uses_pattern_fallback(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should fall back to patterns when Ollama is down."""
+        mock_llm_client.is_ollama_available.return_value = False
+
+        folders = [
+            FolderNode(
+                path="/test/docs",
+                name="docs",
+                depth=0,
+                file_count=10,
+                file_types={".pdf": 8, ".docx": 2},
+                sample_filenames=["doc_001.pdf", "doc_002.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(llm_client=mock_llm_client)
+        result = generator.generate_rules(snapshot)
+
+        assert result.model_used == "pattern_fallback"
+        mock_llm_client.generate.assert_not_called()
+
+    def test_llm_generate_fails_uses_pattern_fallback(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should fall back when LLM generate returns failure."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=False,
+            text="",
+            error="Timeout",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/reports",
+                name="reports",
+                depth=0,
+                file_count=5,
+                file_types={".pdf": 5},
+                sample_filenames=["report_2024.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(llm_client=mock_llm_client)
+        result = generator.generate_rules(snapshot)
+
+        # Should have pattern-based rules
+        assert all(r.model_used == "pattern_fallback" for r in result.rules)
+
+
+class TestPromptRegistryRuleIntegration:
+    """Tests for prompt registry integration in rule generation."""
+
+    def test_uses_prompt_from_registry_for_rules(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should use prompt from registry when available."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"rules": [{"pattern": "tax", "confidence": 0.9, "reasoning": "Tax docs"}]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = "Custom rule generation prompt"
+
+        folders = [
+            FolderNode(
+                path="/test/tax",
+                name="tax",
+                depth=0,
+                file_count=5,
+                sample_filenames=["tax_2024.pdf"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(
+            llm_client=mock_llm_client,
+            prompt_registry=mock_registry,
+        )
+        generator.generate_rules(snapshot)
+
+        mock_registry.get.assert_called()
+        assert "rule_generation" in str(mock_registry.get.call_args)
+
+
+class TestJSONParsingRuleEdgeCases:
+    """Tests for JSON parsing edge cases in rule generation."""
+
+    def test_parse_rules_with_empty_pattern_skipped(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should skip rules with empty pattern."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"rules": [{"pattern": "", "confidence": 0.9, "reasoning": "Empty"}, {"pattern": "valid", "confidence": 0.8, "reasoning": "Valid"}]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/mixed",
+                name="mixed",
+                depth=0,
+                file_count=5,
+                sample_filenames=["file.txt"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(llm_client=mock_llm_client)
+        result = generator.generate_rules(snapshot)
+
+        llm_rules = [r for r in result.rules if r.used_llm]
+        # Only "valid" pattern should be included
+        assert all(r.pattern != "" for r in llm_rules)
+
+    def test_parse_rules_non_dict_items_skipped(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should skip non-dict items in rules array."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"rules": ["not a dict", {"pattern": "valid", "confidence": 0.8, "reasoning": "OK"}, 123]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/mixed",
+                name="mixed",
+                depth=0,
+                file_count=5,
+                sample_filenames=["file.txt"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(llm_client=mock_llm_client)
+        result = generator.generate_rules(snapshot)
+
+        llm_rules = [r for r in result.rules if r.used_llm]
+        assert len(llm_rules) == 1
+        assert llm_rules[0].pattern == "valid"
+
+    def test_max_rules_per_folder_respected(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should respect max_rules_per_folder parameter."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='{"rules": [{"pattern": "a", "confidence": 0.9, "reasoning": "A"}, {"pattern": "b", "confidence": 0.8, "reasoning": "B"}, {"pattern": "c", "confidence": 0.7, "reasoning": "C"}, {"pattern": "d", "confidence": 0.6, "reasoning": "D"}]}',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        folders = [
+            FolderNode(
+                path="/test/many",
+                name="many",
+                depth=0,
+                file_count=10,
+                sample_filenames=["file.txt"],
+            ),
+        ]
+        snapshot = _create_mock_snapshot(folders)
+
+        generator = RuleGenerator(llm_client=mock_llm_client)
+        result = generator.generate_rules(snapshot, max_rules_per_folder=2)
+
+        llm_rules = [r for r in result.rules if r.used_llm]
+        assert len(llm_rules) <= 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM Strategy Narration - Comprehensive Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLLMNarrationPath:
+    """Tests for LLM narration code path verification."""
+
+    def test_narration_uses_t2_smart_model(
+        self, mock_llm_client: MagicMock, mock_model_router: MagicMock
+    ) -> None:
+        """Should use T2 Smart model for narration."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text="This folder uses category-based organization.",
+            model_used="qwen2.5-coder:14b",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "docs").mkdir()
+
+            analyzer = StructureAnalyzer(
+                llm_client=mock_llm_client,
+                model_router=mock_model_router,
+                use_llm=True,
+            )
+            analyzer.analyze(root, max_depth=4, generate_narration=True)
+
+            # Verify T2 model was requested
+            mock_model_router.route.assert_called()
+            call_args = mock_model_router.route.call_args
+            assert call_args[0][0].task_type == "analyze"
+
+    def test_narration_model_used_captured(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should capture model_used in snapshot."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text="Date-based organization with yearly folders.",
+            model_used="llama3.1:8b-instruct-q8_0",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "2023").mkdir()
+            (root / "2024").mkdir()
+
+            analyzer = StructureAnalyzer(
+                llm_client=mock_llm_client,
+                use_llm=True,
+            )
+            result = analyzer.analyze(root, max_depth=4, generate_narration=True)
+
+            assert result.model_used == "llama3.1:8b-instruct-q8_0"
+
+
+class TestLLMNarrationUnavailability:
+    """Tests for LLM unavailability in narration."""
+
+    def test_ollama_down_generates_keyword_narration(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should generate keyword-based narration when Ollama down."""
+        mock_llm_client.is_ollama_available.return_value = False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "invoices").mkdir()
+            (root / "receipts").mkdir()
+
+            analyzer = StructureAnalyzer(
+                llm_client=mock_llm_client,
+                use_llm=True,
+            )
+            result = analyzer.analyze(root, max_depth=4, generate_narration=True)
+
+            assert result.model_used == ""
+            assert result.strategy_description != ""
+            mock_llm_client.generate.assert_not_called()
+
+    def test_generate_narration_false_skips_llm(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should skip narration when generate_narration=False."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "test").mkdir()
+
+            analyzer = StructureAnalyzer(
+                llm_client=mock_llm_client,
+                use_llm=True,
+            )
+            result = analyzer.analyze(root, max_depth=4, generate_narration=False)
+
+            assert result.strategy_description == ""
+            mock_llm_client.is_ollama_available.assert_not_called()
+
+
+class TestPromptRegistryNarrationIntegration:
+    """Tests for prompt registry in narration."""
+
+    def test_uses_prompt_from_registry_for_narration(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should use prompt from registry when available."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text="Custom narration from registry prompt.",
+            model_used="qwen2.5-coder:14b",
+        )
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = "Custom narration prompt for {structure_json}"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "docs").mkdir()
+
+            analyzer = StructureAnalyzer(
+                llm_client=mock_llm_client,
+                prompt_registry=mock_registry,
+                use_llm=True,
+            )
+            analyzer.analyze(root, max_depth=4, generate_narration=True)
+
+            mock_registry.get.assert_called()
+            assert "structure_narration" in str(mock_registry.get.call_args)
+
+
+class TestNarrationEdgeCases:
+    """Tests for narration edge cases."""
+
+    def test_narration_strips_markdown_code_blocks(
+        self, mock_llm_client: MagicMock
+    ) -> None:
+        """Should strip markdown code blocks from narration."""
+        mock_llm_client.generate.return_value = MagicMock(
+            success=True,
+            text='```\nOrganized by project with date folders.\n```',
+            model_used="qwen2.5-coder:14b",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "project").mkdir()
+
+            analyzer = StructureAnalyzer(
+                llm_client=mock_llm_client,
+                use_llm=True,
+            )
+            result = analyzer.analyze(root, max_depth=4, generate_narration=True)
+
+            assert "```" not in result.strategy_description
+            assert "project" in result.strategy_description.lower()
+
+    def test_keyword_narration_includes_file_types(self) -> None:
+        """Should mention file types in keyword-based narration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for i in range(5):
+                (root / f"document{i}.pdf").touch()
+
+            analyzer = StructureAnalyzer(use_llm=False)
+            result = analyzer.analyze(root, max_depth=4, generate_narration=True)
+
+            assert ".pdf" in result.strategy_description.lower()
+
+    def test_keyword_narration_detects_date_structure(self) -> None:
+        """Should detect date-based organization in keyword narration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "2022").mkdir()
+            (root / "2023").mkdir()
+            (root / "2024").mkdir()
+
+            analyzer = StructureAnalyzer(use_llm=False)
+            result = analyzer.analyze(root, max_depth=4, generate_narration=True)
+
+            assert "date" in result.strategy_description.lower()

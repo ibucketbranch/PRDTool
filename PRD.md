@@ -731,7 +731,7 @@ A web-based dashboard that:
 - [x] `test_inbox_processor.py` (update): LLM classification path, escalation from T1 to T2, keyword fallback when Ollama down, A/B comparison logging
 - [x] `test_scatter_detector.py` (update): LLM validation path, path preservation reasoning
 - [x] `test_refile_agent.py` (update): LLM drift assessment, destination suggestion when original path gone
-- [ ] `test_learning_agent.py` (update): LLM domain detection, LLM rule generation, strategy narration
+- [x] `test_learning_agent.py` (update): LLM domain detection, LLM rule generation, strategy narration
 
 ---
 
