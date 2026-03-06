@@ -564,31 +564,100 @@ export async function getCategoryStats(
   }
 }
 
-// Search documents
+// Search documents using Full-Text Search (FTS) for queries >= 3 chars
+// Falls back to ilike for short queries where FTS is less effective
 export async function searchDocuments(query: string): Promise<{
   documents: Document[];
   error?: string;
 }> {
   try {
     const supabase = getSupabaseClient();
+    const trimmedQuery = query.trim();
 
-    // Search across multiple fields
-    const { data, error } = await supabase
-      .from("documents")
-      .select("*")
-      .or(
-        `file_name.ilike.%${query}%,` +
-          `ai_category.ilike.%${query}%,` +
-          `ai_summary.ilike.%${query}%,` +
-          `current_path.ilike.%${query}%`
-      )
-      .limit(50);
+    // For short queries (< 3 chars), use ilike fallback
+    // FTS is less useful for very short terms
+    if (trimmedQuery.length < 3) {
+      const { data, error } = await supabase
+        .from("documents")
+        .select("*")
+        .or(
+          `file_name.ilike.%${trimmedQuery}%,` +
+            `ai_category.ilike.%${trimmedQuery}%,` +
+            `ai_summary.ilike.%${trimmedQuery}%,` +
+            `current_path.ilike.%${trimmedQuery}%`
+        )
+        .limit(50);
 
-    if (error) {
-      return { documents: [], error: error.message };
+      if (error) {
+        return { documents: [], error: error.message };
+      }
+
+      return { documents: data as Document[] };
     }
 
-    return { documents: data as Document[] };
+    // Use FTS for queries >= 3 chars
+    // This leverages the GIN index for stemming and relevance ranking
+    const { data, error } = await supabase.rpc("search_documents_fts", {
+      search_query: trimmedQuery,
+      result_limit: 50,
+    });
+
+    if (error) {
+      // Fallback to ilike if FTS fails (e.g., function not deployed yet)
+      console.warn("FTS search failed, falling back to ilike:", error.message);
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("documents")
+        .select("*")
+        .or(
+          `file_name.ilike.%${trimmedQuery}%,` +
+            `ai_category.ilike.%${trimmedQuery}%,` +
+            `ai_summary.ilike.%${trimmedQuery}%,` +
+            `current_path.ilike.%${trimmedQuery}%`
+        )
+        .limit(50);
+
+      if (fallbackError) {
+        return { documents: [], error: fallbackError.message };
+      }
+
+      return { documents: fallbackData as Document[] };
+    }
+
+    // Map RPC result to Document type (RPC returns with rank column)
+    const documents: Document[] = (data || []).map(
+      (row: {
+        id: string;
+        file_name: string;
+        current_path: string;
+        ai_category: string | null;
+        ai_subcategories: string[] | null;
+        ai_summary: string | null;
+        entities: DocumentEntities | null;
+        key_dates: string[] | null;
+        folder_hierarchy: string[] | null;
+        file_modified_at: string | null;
+        pdf_modified_date: string | null;
+        created_at: string;
+        updated_at: string;
+        rank?: number;
+      }) => ({
+        id: row.id,
+        file_name: row.file_name,
+        current_path: row.current_path,
+        ai_category: row.ai_category,
+        ai_subcategories: row.ai_subcategories,
+        ai_summary: row.ai_summary,
+        entities: row.entities,
+        key_dates: row.key_dates,
+        folder_hierarchy: row.folder_hierarchy,
+        file_modified_at: row.file_modified_at,
+        pdf_modified_date: row.pdf_modified_date,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      })
+    );
+
+    return { documents };
   } catch (err) {
     return {
       documents: [],

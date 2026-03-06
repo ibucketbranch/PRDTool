@@ -743,7 +743,7 @@ A web-based dashboard that:
 > using `to_tsvector('english', file_name || ai_summary || extracted_text)` that is
 > built and idle. This task switches search to use it.
 
-- [ ] Update `searchDocuments()` in `dashboard/lib/supabase.ts`
+- [x] Update `searchDocuments()` in `dashboard/lib/supabase.ts`
   - Replace `.ilike()` calls with Supabase `.textSearch()` using the existing
     `to_tsvector` index
   - Gets: stemming ("taxes" finds "tax"), relevance ranking, boolean operators

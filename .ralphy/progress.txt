@@ -4185,3 +4185,25 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
 - ✅ Learned rule merge priority (already covered in original tests)
 
 - Task marked complete in PRD.md
+
+## 2026-03-06
+- Implemented Phase 17 task: Update `searchDocuments()` in `dashboard/lib/supabase.ts` to use FTS
+  - Created new PostgreSQL function `search_documents_fts()` in migration `20260306000001_fts_search_function.sql`
+    - Uses existing GIN index on `to_tsvector('english', file_name || ai_summary || extracted_text)`
+    - Supports prefix matching with `:*` suffix for better partial word matching
+    - Returns results with relevance ranking via `ts_rank()`
+    - Ordered by rank DESC, then updated_at DESC
+  - Updated `searchDocuments()` function in `dashboard/lib/supabase.ts`:
+    - For queries >= 3 chars: Uses FTS RPC function for stemming and relevance ranking
+    - For queries < 3 chars: Falls back to ilike (FTS less useful for very short terms)
+    - Graceful fallback: If FTS RPC fails (e.g., function not deployed), falls back to ilike
+    - Properly maps RPC results to Document type (strips rank field)
+  - Added 9 new tests in `dashboard/__tests__/supabase.test.ts`:
+    - Tests FTS RPC usage for queries >= 3 chars
+    - Tests ilike fallback for short queries
+    - Tests fallback when FTS RPC fails
+    - Tests error handling for both paths
+    - Tests query trimming and result mapping
+- All searchDocuments tests pass (9/9)
+- Linting passes (no new lint errors introduced; pre-existing errors remain)
+- Task completed successfully

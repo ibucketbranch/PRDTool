@@ -299,7 +299,44 @@ describe("Supabase Client", () => {
       },
     ];
 
-    it("should search across multiple fields", async () => {
+    // FTS response includes rank field
+    const mockFTSResults = [
+      {
+        id: "1",
+        file_name: "verizon_bill_2024.pdf",
+        current_path: "/bills/verizon_bill_2024.pdf",
+        ai_category: "utility_bill",
+        ai_subcategories: null,
+        ai_summary: "Verizon phone bill for January 2024",
+        entities: { organizations: ["Verizon"], amounts: ["$89.99"] },
+        key_dates: ["2024-01-15"],
+        folder_hierarchy: ["bills"],
+        file_modified_at: null,
+        pdf_modified_date: null,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+        rank: 0.95,
+      },
+    ];
+
+    it("should use FTS RPC for queries >= 3 characters", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: mockFTSResults,
+        error: null,
+      });
+
+      const result = await searchDocuments("verizon");
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0].file_name).toBe("verizon_bill_2024.pdf");
+      expect(result.error).toBeUndefined();
+      expect(mockSupabaseClient.rpc).toHaveBeenCalledWith("search_documents_fts", {
+        search_query: "verizon",
+        result_limit: 50,
+      });
+    });
+
+    it("should use ilike fallback for short queries (< 3 chars)", async () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
@@ -310,16 +347,55 @@ describe("Supabase Client", () => {
       };
       mockSupabaseClient.from.mockReturnValue(mockQuery);
 
-      const result = await searchDocuments("verizon");
+      const result = await searchDocuments("ab");
 
       expect(result.documents).toEqual(mockSearchResults);
       expect(result.error).toBeUndefined();
       expect(mockQuery.or).toHaveBeenCalledWith(
-        expect.stringContaining("file_name.ilike.%verizon%")
+        expect.stringContaining("file_name.ilike.%ab%")
+      );
+      // RPC should NOT be called for short queries
+      expect(mockSupabaseClient.rpc).not.toHaveBeenCalled();
+    });
+
+    it("should fall back to ilike if FTS RPC fails", async () => {
+      // First call: RPC fails
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: null,
+        error: { message: "Function not found" },
+      });
+
+      // Fallback: ilike succeeds
+      const mockQuery = {
+        select: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue({
+          data: mockSearchResults,
+          error: null,
+        }),
+      };
+      mockSupabaseClient.from.mockReturnValue(mockQuery);
+
+      const result = await searchDocuments("test");
+
+      expect(result.documents).toEqual(mockSearchResults);
+      expect(result.error).toBeUndefined();
+      // Should have tried RPC first
+      expect(mockSupabaseClient.rpc).toHaveBeenCalled();
+      // Then fallen back to ilike
+      expect(mockQuery.or).toHaveBeenCalledWith(
+        expect.stringContaining("file_name.ilike.%test%")
       );
     });
 
-    it("should handle search errors", async () => {
+    it("should return error if both FTS and fallback fail", async () => {
+      // RPC fails
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: null,
+        error: { message: "RPC failed" },
+      });
+
+      // Fallback also fails
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
@@ -336,20 +412,74 @@ describe("Supabase Client", () => {
       expect(result.error).toBe("Search failed");
     });
 
-    it("should limit results to 50", async () => {
+    it("should handle ilike errors for short queries", async () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
-          data: [],
-          error: null,
+          data: null,
+          error: { message: "Search failed" },
         }),
       };
       mockSupabaseClient.from.mockReturnValue(mockQuery);
 
-      await searchDocuments("test");
+      const result = await searchDocuments("xy");
 
-      expect(mockQuery.limit).toHaveBeenCalledWith(50);
+      expect(result.documents).toEqual([]);
+      expect(result.error).toBe("Search failed");
+    });
+
+    it("should pass result_limit of 50 to FTS RPC", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: [],
+        error: null,
+      });
+
+      await searchDocuments("document");
+
+      expect(mockSupabaseClient.rpc).toHaveBeenCalledWith("search_documents_fts", {
+        search_query: "document",
+        result_limit: 50,
+      });
+    });
+
+    it("should trim whitespace from query", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: mockFTSResults,
+        error: null,
+      });
+
+      await searchDocuments("  verizon  ");
+
+      expect(mockSupabaseClient.rpc).toHaveBeenCalledWith("search_documents_fts", {
+        search_query: "verizon",
+        result_limit: 50,
+      });
+    });
+
+    it("should map FTS result removing rank field", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: mockFTSResults,
+        error: null,
+      });
+
+      const result = await searchDocuments("verizon");
+
+      expect(result.documents[0]).not.toHaveProperty("rank");
+      expect(result.documents[0]).toHaveProperty("id");
+      expect(result.documents[0]).toHaveProperty("file_name");
+    });
+
+    it("should handle empty FTS results", async () => {
+      mockSupabaseClient.rpc.mockResolvedValue({
+        data: [],
+        error: null,
+      });
+
+      const result = await searchDocuments("nonexistent");
+
+      expect(result.documents).toEqual([]);
+      expect(result.error).toBeUndefined();
     });
   });
 
