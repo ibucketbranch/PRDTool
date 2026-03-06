@@ -56,5 +56,6 @@ export async function GET(request: NextRequest) {
     searchDescription,
     documents: result.documents,
     count: result.documents.length,
+    enrichmentMatches: result.enrichmentMatches,
   });
 }

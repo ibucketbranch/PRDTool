@@ -682,7 +682,7 @@ A web-based dashboard that:
   - After successful inbox filing: enrich the filed file (async, non-blocking to the filing flow)
   - After DNA registration (Phase 13): enrich if not already cached
   - Enrichment data stored alongside File DNA record
-- [ ] Power dashboard search with enrichment data
+- [x] Power dashboard search with enrichment data
   - Natural language search queries matched against enrichment metadata
   - "Find my Verizon bill from March 2024" matches against `organizations: ["Verizon"]`, `date_references: ["March 2024"]`
   - No vector database needed -- structured metadata + text search is sufficient for this scale

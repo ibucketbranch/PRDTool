@@ -18,7 +18,7 @@ export async function GET() {
     let totalTracked = 0;
     let duplicateGroups = 0;
     let duplicateFiles = 0;
-    let wastedBytes = 0;
+    const wastedBytes = 0;
     let filesRoutedThisMonth = 0;
     let healthScore = 100;
 

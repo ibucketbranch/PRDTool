@@ -3707,3 +3707,30 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
 
 ### PRD Task Updated
 - Marked Phase 16.3 task "Wire enrichment into agent cycle" as complete
+
+## 2026-03-05
+- Implemented Phase 16.3: Power dashboard search with enrichment data
+  - Created `dashboard/lib/enrichment-search.ts` with enrichment search utilities:
+    - `matchEnrichment()` - Match queries against enrichment metadata (organizations, dates, topics, people)
+    - `searchEnrichmentCache()` - Search the local enrichment cache file
+    - `getEnrichmentByHash()` / `getEnrichmentByPath()` - Lookup enrichment by file identifier
+    - `getEnrichmentMap()` / `getEnrichmentMapByPath()` - Get all enrichments as maps
+  - Created `dashboard/app/api/enrichment/route.ts` API endpoint:
+    - `GET /api/enrichment?stats=true` - Returns cache statistics (entry count, LLM vs keyword enriched, top doc types/orgs)
+    - `GET /api/enrichment?hash=<hash>` - Get enrichment by file hash
+    - `GET /api/enrichment?path=<path>` - Get enrichment by file path
+  - Updated `dashboard/lib/supabase.ts`:
+    - `naturalLanguageSearch()` now searches both database AND enrichment cache in parallel
+    - Merges enrichment-only results with database results
+    - Attaches enrichment data to document results
+    - Sorts results by enrichment match score for relevance ranking
+  - Updated `dashboard/app/api/search/route.ts`:
+    - Added `enrichmentMatches` count to API response
+  - Example queries now work:
+    - "Find my Verizon bill from March 2024" matches against `organizations: ["Verizon"]`, `date_references: ["March 2024"]`
+    - Supports matching by document_type, people, key_topics, summary, suggested_tags
+- Created tests:
+  - `dashboard/__tests__/enrichment-search.test.ts` - 20 unit tests for enrichment matching logic
+  - `dashboard/__tests__/api-enrichment.test.ts` - 9 tests for the API endpoint
+- All 29 tests pass, linting passes
+- Task completed successfully

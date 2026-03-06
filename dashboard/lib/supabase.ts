@@ -12,6 +12,13 @@ import {
   getFileMovementHistory,
 } from "./execution-logs";
 
+// Import enrichment search utilities
+import {
+  searchEnrichmentCache,
+  getEnrichmentMapByPath,
+  type FileEnrichment,
+} from "./enrichment-search";
+
 // Database types based on the PRD schema
 export interface Document {
   id: string;
@@ -27,6 +34,10 @@ export interface Document {
   pdf_modified_date: string | null;
   created_at: string;
   updated_at: string;
+  // Enrichment data (populated from cache, not from database)
+  enrichment?: FileEnrichment | null;
+  enrichment_match_reasons?: string[];
+  enrichment_match_score?: number;
 }
 
 export interface DocumentEntities {
@@ -507,7 +518,7 @@ export async function getCategoryStats(
     const supabase = getSupabaseClient();
     
     // Fetch documents with date fields for filtering
-    let query = supabase
+    const query = supabase
       .from("documents")
       .select("ai_category, file_modified_at, created_at, key_dates, file_name");
 
@@ -852,7 +863,7 @@ export async function getContextBinCounts(
     const supabase = getSupabaseClient();
 
     // Fetch documents with date fields for filtering
-    let query = supabase
+    const query = supabase
       .from("documents")
       .select("folder_hierarchy, file_modified_at, created_at, key_dates, file_name");
 
@@ -1034,7 +1045,7 @@ async function getStatisticsOptimized(): Promise<StatisticsResult> {
   }
 }
 
-// Natural language search with parsed query filters
+// Natural language search with parsed query filters and enrichment data
 export async function naturalLanguageSearch(
   parsedQuery: {
     originalQuery: string;
@@ -1046,53 +1057,66 @@ export async function naturalLanguageSearch(
   limit: number = 50
 ): Promise<{
   documents: Document[];
+  enrichmentMatches?: number;
   error?: string;
 }> {
   try {
     const supabase = getSupabaseClient();
 
-    // Build the query
-    let query = supabase.from("documents").select("*");
+    // Run database search and enrichment search in parallel
+    const [dbResult, enrichmentResults, enrichmentMap] = await Promise.all([
+      // Database search
+      (async () => {
+        // Build the query
+        let query = supabase.from("documents").select("*");
 
-    // Apply category filter if detected
-    if (parsedQuery.category) {
-      query = query.eq("ai_category", parsedQuery.category);
-    }
+        // Apply category filter if detected
+        if (parsedQuery.category) {
+          query = query.eq("ai_category", parsedQuery.category);
+        }
 
-    // Build text search conditions
-    const textConditions: string[] = [];
+        // Build text search conditions
+        const textConditions: string[] = [];
 
-    // Add organization search in entities JSONB and other text fields
-    for (const org of parsedQuery.organizations) {
-      // Search in ai_summary, file_name, and current_path
-      textConditions.push(`ai_summary.ilike.%${org}%`);
-      textConditions.push(`file_name.ilike.%${org}%`);
-      textConditions.push(`current_path.ilike.%${org}%`);
-    }
+        // Add organization search in entities JSONB and other text fields
+        for (const org of parsedQuery.organizations) {
+          // Search in ai_summary, file_name, and current_path
+          textConditions.push(`ai_summary.ilike.%${org}%`);
+          textConditions.push(`file_name.ilike.%${org}%`);
+          textConditions.push(`current_path.ilike.%${org}%`);
+        }
 
-    // Add remaining search terms
-    for (const term of parsedQuery.searchTerms) {
-      textConditions.push(`ai_summary.ilike.%${term}%`);
-      textConditions.push(`file_name.ilike.%${term}%`);
-      textConditions.push(`ai_category.ilike.%${term}%`);
-    }
+        // Add remaining search terms
+        for (const term of parsedQuery.searchTerms) {
+          textConditions.push(`ai_summary.ilike.%${term}%`);
+          textConditions.push(`file_name.ilike.%${term}%`);
+          textConditions.push(`ai_category.ilike.%${term}%`);
+        }
 
-    // If no category was detected but we have keywords, also search in ai_category
-    if (!parsedQuery.category && parsedQuery.originalQuery) {
-      textConditions.push(
-        `ai_category.ilike.%${parsedQuery.originalQuery.split(" ").join("%")}%`
-      );
-    }
+        // If no category was detected but we have keywords, also search in ai_category
+        if (!parsedQuery.category && parsedQuery.originalQuery) {
+          textConditions.push(
+            `ai_category.ilike.%${parsedQuery.originalQuery.split(" ").join("%")}%`
+          );
+        }
 
-    // Apply text conditions as OR
-    if (textConditions.length > 0) {
-      query = query.or(textConditions.join(","));
-    }
+        // Apply text conditions as OR
+        if (textConditions.length > 0) {
+          query = query.or(textConditions.join(","));
+        }
 
-    // Apply limit
-    query = query.limit(limit);
+        // Apply limit (fetch more to allow for enrichment merging)
+        query = query.limit(limit * 2);
 
-    const { data, error } = await query;
+        return query;
+      })(),
+      // Enrichment cache search
+      searchEnrichmentCache(parsedQuery.originalQuery, parsedQuery, limit),
+      // Get enrichment map for attaching to database results
+      getEnrichmentMapByPath(),
+    ]);
+
+    const { data, error } = await dbResult;
 
     if (error) {
       return { documents: [], error: error.message };
@@ -1110,7 +1134,62 @@ export async function naturalLanguageSearch(
       documents = filterByOrganizations(documents, parsedQuery.organizations);
     }
 
-    return { documents };
+    // Attach enrichment data to database documents
+    for (const doc of documents) {
+      const enrichment = enrichmentMap.get(doc.current_path);
+      if (enrichment) {
+        doc.enrichment = enrichment;
+      }
+    }
+
+    // Merge enrichment-only results (files in cache but not found by DB query)
+    const dbPaths = new Set(documents.map((d) => d.current_path));
+    const enrichmentOnlyResults = enrichmentResults.filter(
+      (er) => !dbPaths.has(er.file_path)
+    );
+
+    // If we have enrichment-only matches, try to find them in DB by path
+    if (enrichmentOnlyResults.length > 0) {
+      const enrichmentPaths = enrichmentOnlyResults.map((er) => er.file_path);
+
+      // Query database for these specific paths
+      const { data: enrichmentDocs, error: enrichError } = await supabase
+        .from("documents")
+        .select("*")
+        .in("current_path", enrichmentPaths);
+
+      if (!enrichError && enrichmentDocs) {
+        // Attach enrichment data and match info to these documents
+        for (const doc of enrichmentDocs as Document[]) {
+          const matchResult = enrichmentResults.find(
+            (er) => er.file_path === doc.current_path
+          );
+          if (matchResult) {
+            doc.enrichment = matchResult.enrichment;
+            doc.enrichment_match_reasons = matchResult.match_reasons;
+            doc.enrichment_match_score = matchResult.match_score;
+          }
+        }
+
+        // Add enrichment-sourced documents to results
+        documents = [...documents, ...(enrichmentDocs as Document[])];
+      }
+    }
+
+    // Sort: prioritize documents with enrichment matches, then by enrichment score
+    documents.sort((a, b) => {
+      const scoreA = a.enrichment_match_score || 0;
+      const scoreB = b.enrichment_match_score || 0;
+      return scoreB - scoreA;
+    });
+
+    // Apply final limit
+    documents = documents.slice(0, limit);
+
+    return {
+      documents,
+      enrichmentMatches: enrichmentResults.length,
+    };
   } catch (err) {
     return {
       documents: [],
