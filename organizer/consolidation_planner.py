@@ -375,6 +375,20 @@ class ConsolidationPlanner:
         )
         self._respect_learned_hierarchy = respect_learned_hierarchy
         self._learned_structure: Optional["StructureSnapshot"] = None
+        self._keep_at_root_names: frozenset[str] = self._load_keep_at_root_names()
+
+    def _load_keep_at_root_names(self) -> frozenset[str]:
+        """Load folder names marked __KEEP_AT_ROOT__ in the canonical registry."""
+        registry_path = os.path.join(self.base_path, ".organizer", "canonical_registry.json")
+        try:
+            with open(registry_path, encoding="utf-8") as f:
+                data = json.load(f)
+            return frozenset(
+                name for name, dest in data.get("mappings", {}).items()
+                if dest == "__KEEP_AT_ROOT__"
+            )
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return frozenset()
 
     def _get_db_connection(self) -> Optional[sqlite3.Connection]:
         """Get database connection for content-aware analysis."""
@@ -498,37 +512,40 @@ class ConsolidationPlanner:
             return
 
         try:
-            entries = os.listdir(path)
+            dir_entries = list(os.scandir(path))
         except (PermissionError, OSError):
             return
 
-        for entry in entries:
-            entry_path = os.path.join(path, entry)
-
-            if not os.path.isdir(entry_path):
+        for entry in dir_entries:
+            if not entry.is_dir(follow_symlinks=False):
                 continue
 
             # Skip hidden directories
-            if entry.startswith("."):
+            if entry.name.startswith("."):
                 continue
 
-            # Get folder stats
-            file_count, total_size = self._get_folder_stats(entry_path)
+            # Skip root-level folders marked __KEEP_AT_ROOT__ in the registry
+            if current_depth == 0 and entry.name in self._keep_at_root_names:
+                continue
+
+            file_count, total_size = self._get_folder_stats(entry.path)
 
             folders.append(
                 FolderInfo(
-                    path=entry_path,
-                    name=entry,
+                    path=entry.path,
+                    name=entry.name,
                     file_count=file_count,
                     total_size=total_size,
                 )
             )
 
-            # Recurse into subdirectory
-            self._scan_recursive(entry_path, folders, current_depth + 1, max_depth)
+            self._scan_recursive(entry.path, folders, current_depth + 1, max_depth)
 
     def _get_folder_stats(self, path: str) -> tuple[int, int]:
         """Get file count and total size for a folder (non-recursive).
+
+        Skips iCloud placeholder files (.icloud) to avoid triggering
+        downloads of cloud-only content during scanning.
 
         Args:
             path: Folder path to analyze.
@@ -540,12 +557,13 @@ class ConsolidationPlanner:
         total_size = 0
 
         try:
-            for entry in os.listdir(path):
-                entry_path = os.path.join(path, entry)
-                if os.path.isfile(entry_path):
+            for entry in os.scandir(path):
+                if entry.name.startswith(".") and entry.name.endswith(".icloud"):
+                    continue
+                if entry.is_file(follow_symlinks=False):
                     file_count += 1
                     try:
-                        total_size += os.path.getsize(entry_path)
+                        total_size += entry.stat(follow_symlinks=False).st_size
                     except OSError:
                         pass
         except (PermissionError, OSError):

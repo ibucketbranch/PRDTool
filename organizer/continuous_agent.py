@@ -23,7 +23,7 @@ from typing import Any
 CANONICAL_ROOTS = frozenset({
     "Family Bin", "Finances Bin", "Legal Bin", "Personal Bin",
     "Work Bin", "VA", "Archive", "Needs-Review", "In-Box",
-    "Desktop", "Documents",
+    "Desktop", "Documents", "Screenshots",
 })
 
 from organizer.consolidation_planner import ConsolidationPlan, ConsolidationPlanner
@@ -99,6 +99,8 @@ class ContinuousAgentConfig:
     enrichment_cache_file: str = ".organizer/agent/enrichment_cache.json"
     enrichment_on_inbox: bool = True  # Enrich after successful inbox filing
     enrichment_on_dna_registration: bool = True  # Enrich after DNA registration
+    # Consolidation planner (disable on iCloud drives where deep scans hang)
+    consolidation_scan_enabled: bool = True
 
     @classmethod
     def load(cls, path: str | Path) -> "ContinuousAgentConfig":
@@ -117,36 +119,42 @@ class ContinuousAgentConfig:
         )
 
     def resolve_paths(self) -> None:
-        """Normalize known paths to absolute paths."""
+        """Normalize known paths to absolute paths.
+
+        Relative paths are resolved against base_path (the iCloud root),
+        not the current working directory.
+        """
         self.base_path = str(Path(self.base_path).resolve())
-        self.queue_dir = str(Path(self.queue_dir).resolve())
-        self.plans_dir = str(Path(self.plans_dir).resolve())
-        self.logs_dir = str(Path(self.logs_dir).resolve())
-        self.state_file = str(Path(self.state_file).resolve())
-        self.project_learning_file = str(Path(self.project_learning_file).resolve())
-        self.empty_folder_policy_file = str(
-            Path(self.empty_folder_policy_file).resolve()
-        )
+        base = Path(self.base_path)
+
+        def _resolve(p: str) -> str:
+            path = Path(p)
+            if path.is_absolute():
+                return str(path)
+            return str((base / path).resolve())
+
+        self.queue_dir = _resolve(self.queue_dir)
+        self.plans_dir = _resolve(self.plans_dir)
+        self.logs_dir = _resolve(self.logs_dir)
+        self.state_file = _resolve(self.state_file)
+        self.project_learning_file = _resolve(self.project_learning_file)
+        self.empty_folder_policy_file = _resolve(self.empty_folder_policy_file)
         if self.canonical_registry_file:
-            self.canonical_registry_file = str(
-                Path(self.canonical_registry_file).resolve()
-            )
+            self.canonical_registry_file = _resolve(self.canonical_registry_file)
         if self.root_taxonomy_file:
-            self.root_taxonomy_file = str(Path(self.root_taxonomy_file).resolve())
+            self.root_taxonomy_file = _resolve(self.root_taxonomy_file)
         if self.db_path:
-            self.db_path = str(Path(self.db_path).resolve())
+            self.db_path = _resolve(self.db_path)
         if self.prd_task_status_file:
-            self.prd_task_status_file = str(Path(self.prd_task_status_file).resolve())
+            self.prd_task_status_file = _resolve(self.prd_task_status_file)
         if self.dna_registry_file:
-            self.dna_registry_file = str(Path(self.dna_registry_file).resolve())
+            self.dna_registry_file = _resolve(self.dna_registry_file)
         if self.refile_routing_history_file:
-            self.refile_routing_history_file = str(
-                Path(self.refile_routing_history_file).resolve()
+            self.refile_routing_history_file = _resolve(
+                self.refile_routing_history_file
             )
         if self.enrichment_cache_file:
-            self.enrichment_cache_file = str(
-                Path(self.enrichment_cache_file).resolve()
-            )
+            self.enrichment_cache_file = _resolve(self.enrichment_cache_file)
 
 
 PROJECT_VERSION_TOKENS = {
@@ -504,20 +512,26 @@ class ContinuousOrganizerAgent:
     def run_cycle(self) -> dict[str, Any]:
         """Run one agent cycle and return a machine-readable summary."""
         cycle_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        planner = ConsolidationPlanner(
-            base_path=self.config.base_path,
-            threshold=self.config.threshold,
-            db_path=self.config.db_path,
-            content_aware=self.config.content_aware,
-            content_similarity_threshold=self.config.min_content_similarity,
-            analyze_missing=self.config.analyze_missing,
-        )
-        plan = planner.create_plan(max_depth=self.config.max_depth)
 
-        plan_path = Path(self.config.plans_dir) / f"plan_{cycle_id}.json"
-        plan.save(plan_path)
+        proposed_actions: list[ProposedAction] = []
+        plan = None
 
-        proposed_actions = self._build_proposed_actions(plan, cycle_id)
+        if self.config.consolidation_scan_enabled:
+            planner = ConsolidationPlanner(
+                base_path=self.config.base_path,
+                threshold=self.config.threshold,
+                db_path=self.config.db_path,
+                content_aware=self.config.content_aware,
+                content_similarity_threshold=self.config.min_content_similarity,
+                analyze_missing=self.config.analyze_missing,
+            )
+            plan = planner.create_plan(max_depth=self.config.max_depth)
+
+            plan_path = Path(self.config.plans_dir) / f"plan_{cycle_id}.json"
+            plan.save(plan_path)
+
+            proposed_actions = self._build_proposed_actions(plan, cycle_id)
+
         empty_folder_summary = self._evaluate_empty_folders(cycle_id)
         proposed_actions.extend(empty_folder_summary["actions"])
 
@@ -604,8 +618,15 @@ class ContinuousOrganizerAgent:
         elif self.config.auto_execute:
             # Root strays first (move root folders into bins)
             root_stray_result = self._execute_root_strays(proposed_actions)
-            # Then consolidation
-            exec_result = self._execute_high_confidence_groups(plan)
+            # Then consolidation (only if plan exists)
+            exec_result: dict[str, Any] = {
+                "executed_group_count": 0,
+                "moved_files": 0,
+                "failed_files": 0,
+                "status": "skipped",
+            }
+            if plan is not None:
+                exec_result = self._execute_high_confidence_groups(plan)
             execution_summary.update(exec_result)
             execution_summary["root_strays_moved"] = root_stray_result["moved"]
             execution_summary["root_strays_failed"] = root_stray_result["failed"]
@@ -648,10 +669,10 @@ class ContinuousOrganizerAgent:
                 "min_auto_confidence": self.config.min_auto_confidence,
             },
             "plan": {
-                "path": str(plan_path),
-                "total_groups": plan.total_groups,
-                "groups_to_consolidate": len(plan.groups_to_consolidate),
-                "groups_to_skip": len(plan.groups_to_skip),
+                "path": str(plan_path) if plan is not None else "disabled",
+                "total_groups": plan.total_groups if plan is not None else 0,
+                "groups_to_consolidate": len(plan.groups_to_consolidate) if plan is not None else 0,
+                "groups_to_skip": len(plan.groups_to_skip) if plan is not None else 0,
             },
             "queue": {
                 "path": str(queue_path),
@@ -1797,14 +1818,17 @@ class ContinuousOrganizerAgent:
         return summary, actions
 
     def _execute_root_strays(self, proposed_actions: list[ProposedAction]) -> dict[str, Any]:
-        """Execute root stray moves when auto_execute is on."""
+        """Execute root stray moves when auto_execute is on.
+
+        When the target bin already exists, the source folder is moved
+        inside the target as a subfolder (preserving its original name).
+        """
         moved = 0
         failed = 0
 
         for action in proposed_actions:
             if action.action_type not in ("root_stray_move", "root_stray_to_review"):
                 continue
-            # Mapped: require min_auto_confidence. Unmapped (Needs-Review): 0.85
             min_conf = (
                 self.config.min_auto_confidence
                 if action.action_type == "root_stray_move"
@@ -1819,14 +1843,19 @@ class ContinuousOrganizerAgent:
             if not src.exists() or not src.is_dir():
                 failed += 1
                 continue
-            if dst.exists():
-                # Target exists: skip to avoid overwrite (user can merge manually)
-                failed += 1
-                continue
 
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src), str(dst))
+                if dst.exists():
+                    merged_dst = dst / src.name
+                    if merged_dst.exists():
+                        merged_dst = dst / f"{src.name}_root_merge"
+                        if merged_dst.exists():
+                            failed += 1
+                            continue
+                    shutil.move(str(src), str(merged_dst))
+                else:
+                    shutil.move(str(src), str(dst))
                 moved += 1
             except OSError:
                 failed += 1

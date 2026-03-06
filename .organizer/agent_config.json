@@ -2,12 +2,12 @@
   "analyze_missing": false,
   "auto_execute": true,
   "base_path": "/Users/michaelvalderrama/Library/Mobile Documents/com~apple~CloudDocs",
-  "content_aware": true,
+  "content_aware": false,
   "db_path": "",
   "interval_seconds": 3600,
   "logs_dir": ".organizer/agent/logs",
   "max_actions_per_cycle": 100,
-  "max_depth": 4,
+  "max_depth": 2,
   "min_auto_confidence": 0.95,
   "min_content_similarity": 0.6,
   "plans_dir": ".organizer/agent/plans",
@@ -18,5 +18,17 @@
   "root_taxonomy_file": "/Users/michaelvalderrama/Library/Mobile Documents/com~apple~CloudDocs/.organizer/ROOT_TAXONOMY.json",
   "inbox_enabled": true,
   "inbox_folder_name": "In-Box",
-  "inbox_min_confidence": 0.85
+  "inbox_min_confidence": 0.85,
+  "consolidation_scan_enabled": false,
+  "scatter_enabled": false,
+  "dedup_enabled": false,
+  "dna_scan_on_cycle": false,
+  "refile_enabled": false,
+  "llm_models": {
+    "fast": "llama3.1:8b-instruct-q8_0",
+    "smart": "qwen2.5-coder:14b",
+    "cloud": null,
+    "cloud_enabled": false,
+    "escalation_threshold": 0.75
+  }
 }
