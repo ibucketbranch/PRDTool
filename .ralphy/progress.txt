@@ -3039,3 +3039,33 @@ Task completed successfully.
   - TestIntegration: full workflow with keyword fallback, linker full workflow
 - All 47 tests pass, linting passes
 - Task "Create organizer/relationship_linker.py module" marked complete in PRD.md
+
+## 2026-03-05 (continued)
+- Enhanced `GET /api/file-dna` dashboard endpoint (Phase 13: Intelligence-Agent)
+  - Added search by keyword, hash, or tag with full provenance information
+  - Added `tag` query parameter for exact tag matching
+  - Response now includes `provenance` object with:
+    - `origin`: How the file entered the system (inbox, scan, import)
+    - `first_seen_at`: ISO timestamp when file was first registered
+    - `routed_to`: Destination path if file was routed
+    - `model_used`: LLM model used for tag extraction
+  - Added `related_files` detection:
+    - Finds files with 2+ overlapping tags
+    - Limited to 5 related files per result
+  - Added `duplicate_status` object with:
+    - `is_duplicate`: Whether file is marked as duplicate
+    - `duplicate_of`: Path to canonical file if duplicate
+    - `has_duplicates`: Whether other files have same hash
+    - `duplicate_paths`: List of duplicate file paths
+  - Search is case-insensitive across filename, tags, and content
+  - Results limited to 50 with total count returned
+- Created 29 tests in `dashboard/__tests__/file-dna-api.test.ts`:
+  - TestDNARegistryExists: all entries, keyword search, tag search, hash search
+  - TestProvenanceInformation: origin, first_seen_at, routed_to, model_used
+  - TestRelatedFilesDetection: overlapping tags, limit to 5, empty when no overlap
+  - TestDuplicateStatus: is_duplicate, has_duplicates, unique files
+  - TestErrorHandling: missing registry, invalid JSON, missing entries
+  - TestResultFormat: filename, path, tags, hash, limit to 50
+  - TestCaseInsensitiveSearch: filename, tags, tag param
+- All 29 tests pass, no new linting errors
+- Task "Add GET /api/file-dna dashboard endpoint" marked complete in PRD.md

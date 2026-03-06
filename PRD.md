@@ -500,7 +500,7 @@ A web-based dashboard that:
   - `detect_relationships(dna_registry, llm_client) -> list[FileRelationship]`: for files in same bin, ask **T2 Smart** to identify companions, versions, references
   - Escalation: clusters > 50 files escalate to **T3 Cloud**
   - Example: `nexus_letter.pdf` + `dbq_ptsd.pdf` → companions (both VA evidence)
-- [ ] Add `GET /api/file-dna` dashboard endpoint
+- [x] Add `GET /api/file-dna` dashboard endpoint
   - Search by keyword, hash, or tag; returns provenance, related files, duplicate status
 - [ ] Add `GET /api/file-dna/duplicates` dashboard endpoint
   - Returns duplicate groups: hash, file count, wasted bytes, paths
