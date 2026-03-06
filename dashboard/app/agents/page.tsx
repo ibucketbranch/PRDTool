@@ -93,6 +93,43 @@ interface ReadyTasksResponse {
 	error?: string;
 }
 
+interface DriftRecord {
+	filePath: string;
+	fileName: string;
+	originalFiledPath: string;
+	currentPath: string;
+	filedBy: string;
+	filedAt: string;
+	detectedAt: string;
+	sha256Hash: string;
+	driftAssessment: "likely_intentional" | "likely_accidental" | "";
+	reason: string;
+	modelUsed: string;
+	confidence: number;
+	suggestedDestination: string;
+	priority: "high" | "normal" | "low";
+}
+
+interface DriftGroup {
+	rootBin: string;
+	drifts: DriftRecord[];
+	totalDrifts: number;
+}
+
+interface DriftReportResponse {
+	groups: DriftGroup[];
+	totalDrifts: number;
+	accidentalCount: number;
+	intentionalCount: number;
+	filesChecked: number;
+	filesStillInPlace: number;
+	filesMissing: number;
+	modelUsed: string;
+	usedKeywordFallback: boolean;
+	source: "queue" | "report";
+	error?: string;
+}
+
 const BASE_PATH = process.env.NEXT_PUBLIC_ORGANIZER_BASE_PATH || "/Users/michaelvalderrama/Websites/PRDTool";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -119,6 +156,9 @@ export default function AgentsPage() {
 		message: string;
 		error?: string;
 	} | null>(null);
+	const [driftReport, setDriftReport] = useState<DriftReportResponse | null>(null);
+	const [driftLoading, setDriftLoading] = useState(true);
+	const [driftError, setDriftError] = useState<string | null>(null);
 
 	const loadAgents = useCallback(async () => {
 		try {
@@ -148,16 +188,38 @@ export default function AgentsPage() {
 		}
 	}, []);
 
+	const loadDriftReport = useCallback(async () => {
+		try {
+			setDriftError(null);
+			const res = await fetch(
+				`/api/refile/drift-report?basePath=${encodeURIComponent(BASE_PATH)}`
+			);
+			const data: DriftReportResponse = await res.json();
+			if (data.error) {
+				setDriftError(data.error);
+			}
+			setDriftReport(data);
+		} catch (err) {
+			console.error("Failed to load drift report:", err);
+			setDriftError(err instanceof Error ? err.message : "Failed to load drift report");
+		} finally {
+			setDriftLoading(false);
+		}
+	}, []);
+
 	useEffect(() => {
 		loadAgents();
 		loadReadyTasks();
+		loadDriftReport();
 		const agentInterval = setInterval(loadAgents, 15_000);
 		const taskInterval = setInterval(loadReadyTasks, 30_000);
+		const driftInterval = setInterval(loadDriftReport, 30_000);
 		return () => {
 			clearInterval(agentInterval);
 			clearInterval(taskInterval);
+			clearInterval(driftInterval);
 		};
-	}, [loadAgents, loadReadyTasks]);
+	}, [loadAgents, loadReadyTasks, loadDriftReport]);
 
 	const handleAction = async (agentId: string, action: string) => {
 		setActionInProgress(`${agentId}:${action}`);
@@ -560,6 +622,178 @@ export default function AgentsPage() {
 							</p>
 						)}
 					</div>
+				)}
+			</div>
+
+			{/* Drift Report Panel */}
+			<div className="bg-white rounded-lg border border-neutral-200 p-6 mb-6">
+				<div className="flex items-center justify-between mb-4">
+					<div>
+						<h2 className="text-xl font-semibold">Drift Report</h2>
+						<p className="text-sm text-neutral-500">
+							Files that have moved away from their filed locations
+						</p>
+					</div>
+					<button
+						onClick={loadDriftReport}
+						disabled={driftLoading}
+						className="px-3 py-1.5 rounded text-sm font-medium text-neutral-600 hover:bg-neutral-100 transition-colors"
+					>
+						{driftLoading ? "Loading..." : "Refresh"}
+					</button>
+				</div>
+
+				{driftLoading ? (
+					<p className="text-neutral-500 text-sm">Loading drift report...</p>
+				) : driftError ? (
+					<div className="bg-red-50 border border-red-200 rounded p-4 text-sm text-red-700">
+						{driftError}
+					</div>
+				) : !driftReport || !driftReport.groups || driftReport.totalDrifts === 0 ? (
+					<div className="bg-neutral-50 rounded-lg border border-neutral-200 p-6 text-center">
+						<p className="text-neutral-500">
+							No drifted files detected. All filed documents are in their expected locations.
+						</p>
+					</div>
+				) : (
+					<>
+						{/* Summary stats */}
+						<div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+							<div className="bg-neutral-50 rounded p-3">
+								<div className="text-xs text-neutral-500">Total Drifts</div>
+								<div className="text-lg font-bold">{driftReport.totalDrifts}</div>
+							</div>
+							<div className="bg-red-50 rounded p-3">
+								<div className="text-xs text-red-600">Likely Accidental</div>
+								<div className="text-lg font-bold text-red-700">
+									{driftReport.accidentalCount}
+								</div>
+							</div>
+							<div className="bg-yellow-50 rounded p-3">
+								<div className="text-xs text-yellow-600">Likely Intentional</div>
+								<div className="text-lg font-bold text-yellow-700">
+									{driftReport.intentionalCount}
+								</div>
+							</div>
+							<div className="bg-blue-50 rounded p-3">
+								<div className="text-xs text-blue-600">Source</div>
+								<div className="text-sm font-medium text-blue-700">
+									{driftReport.source === "queue" ? "Pending Queue" : "Saved Report"}
+								</div>
+							</div>
+						</div>
+
+						{/* Model info */}
+						{(driftReport.modelUsed || driftReport.usedKeywordFallback) && (
+							<div className="text-xs text-neutral-500 mb-4">
+								{driftReport.modelUsed && (
+									<span>Model: {driftReport.modelUsed}</span>
+								)}
+								{driftReport.usedKeywordFallback && (
+									<span className="ml-2 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded">
+										keyword fallback
+									</span>
+								)}
+							</div>
+						)}
+
+						{/* Grouped drifts by root bin */}
+						<div className="space-y-3">
+							{driftReport.groups.map((group) => (
+								<details
+									key={group.rootBin}
+									className="bg-neutral-50 rounded-lg border border-neutral-200"
+								>
+									<summary className="p-4 cursor-pointer hover:bg-neutral-100 rounded-lg">
+										<div className="inline-flex items-center gap-2">
+											<span className="font-medium">{group.rootBin}</span>
+											<span className="px-2 py-0.5 bg-neutral-200 text-neutral-700 rounded text-xs">
+												{group.totalDrifts} drift{group.totalDrifts !== 1 ? "s" : ""}
+											</span>
+										</div>
+									</summary>
+									<div className="p-4 pt-0 space-y-2">
+										{group.drifts.map((drift, idx) => (
+											<div
+												key={`${drift.filePath}-${idx}`}
+												className="bg-white rounded border border-neutral-200 p-3"
+											>
+												<div className="flex items-center justify-between mb-2">
+													<span className="font-medium text-sm truncate max-w-md">
+														{drift.fileName}
+													</span>
+													<div className="flex items-center gap-2">
+														{drift.driftAssessment === "likely_accidental" && (
+															<span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+																Accidental
+															</span>
+														)}
+														{drift.driftAssessment === "likely_intentional" && (
+															<span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-medium">
+																Intentional
+															</span>
+														)}
+														<span
+															className={`px-2 py-0.5 rounded text-xs font-medium ${
+																drift.priority === "high"
+																	? "bg-red-100 text-red-800"
+																	: drift.priority === "low"
+																		? "bg-green-100 text-green-800"
+																		: "bg-neutral-100 text-neutral-700"
+															}`}
+														>
+															{drift.priority} priority
+														</span>
+													</div>
+												</div>
+												<div className="text-xs text-neutral-600 space-y-1">
+													<div>
+														<span className="text-neutral-500">Original:</span>{" "}
+														<span className="font-mono truncate block max-w-full overflow-hidden">
+															{drift.originalFiledPath}
+														</span>
+													</div>
+													<div>
+														<span className="text-neutral-500">Current:</span>{" "}
+														<span className="font-mono truncate block max-w-full overflow-hidden">
+															{drift.currentPath}
+														</span>
+													</div>
+													{drift.suggestedDestination && (
+														<div>
+															<span className="text-neutral-500">Suggested:</span>{" "}
+															<span className="font-mono truncate block max-w-full overflow-hidden text-blue-600">
+																{drift.suggestedDestination}
+															</span>
+														</div>
+													)}
+												</div>
+												{drift.reason && (
+													<div className="mt-2 text-xs text-neutral-600 bg-neutral-50 rounded p-2">
+														<span className="text-neutral-500 font-medium">
+															LLM Reasoning:
+														</span>{" "}
+														{drift.reason}
+													</div>
+												)}
+												<div className="mt-2 flex items-center gap-3 text-xs text-neutral-500">
+													{drift.confidence > 0 && (
+														<span>Confidence: {(drift.confidence * 100).toFixed(0)}%</span>
+													)}
+													{drift.modelUsed && <span>Model: {drift.modelUsed}</span>}
+													{drift.detectedAt && (
+														<span>
+															Detected: {new Date(drift.detectedAt).toLocaleString()}
+														</span>
+													)}
+												</div>
+											</div>
+										))}
+									</div>
+								</details>
+							))}
+						</div>
+					</>
 				)}
 			</div>
 

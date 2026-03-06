@@ -3289,3 +3289,28 @@ Task completed successfully.
     - Model usage and keyword fallback detection
   - All 21 tests pass, linting passes
   - Task marked complete in PRD.md
+
+## 2026-03-05
+- Added drift report panel to Agents dashboard page (Phase 14)
+  - Added DriftRecord, DriftGroup, DriftReportResponse interfaces
+  - Added loadDriftReport() callback to fetch data from /api/refile/drift-report endpoint
+  - Added auto-refresh every 30 seconds for drift data
+  - Created drift report panel UI with:
+    - Summary statistics (total drifts, accidental count, intentional count, source)
+    - Model info display with keyword fallback badge
+    - Expandable groups sorted by root bin
+    - Color-coded assessment badges (red for accidental, yellow for intentional)
+    - Priority badges (high/normal/low)
+    - Original, current, and suggested destination paths
+    - LLM reasoning display
+    - Confidence and detection timestamp
+- Created dashboard/__tests__/agents-page-drift-report.test.tsx with 17 tests covering:
+  - Panel rendering and loading states
+  - Drift data display (summary stats, model info, groups)
+  - Drift details (paths, assessment badges, reasoning)
+  - Refresh button functionality
+  - Auto-refresh behavior
+- Updated dashboard/__tests__/agents-page-ready-tasks.test.tsx to handle new Drift Report panel
+- Added null check for driftReport.groups in page component
+- All 31 agents page tests pass, linting passes
+- Task completed successfully

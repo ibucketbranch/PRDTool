@@ -592,12 +592,18 @@ describe("AgentsPage - Ready Tasks Panel", () => {
 					ok: true,
 					json: () => Promise.resolve(mockReadyTasks),
 				},
+				"/api/refile/drift-report": {
+					ok: true,
+					json: () => Promise.resolve({ groups: [], totalDrifts: 0 }),
+				},
 			});
 
 			render(<AgentsPage />);
 
 			await waitFor(() => {
-				expect(screen.getByText("Refresh")).toBeInTheDocument();
+				// Multiple refresh buttons exist now (Ready Tasks + Drift Report)
+				const refreshButtons = screen.getAllByText("Refresh");
+				expect(refreshButtons.length).toBeGreaterThanOrEqual(1);
 			});
 		});
 
@@ -624,6 +630,14 @@ describe("AgentsPage - Ready Tasks Panel", () => {
 					});
 				}
 
+				if (urlStr.includes("/api/refile/drift-report")) {
+					return Promise.resolve({
+						ok: true,
+						status: 200,
+						json: () => Promise.resolve({ groups: [], totalDrifts: 0 }),
+					});
+				}
+
 				return Promise.resolve({
 					ok: true,
 					status: 200,
@@ -640,12 +654,17 @@ describe("AgentsPage - Ready Tasks Panel", () => {
 			// Initial fetch count
 			expect(readyTasksFetchCount).toBe(1);
 
-			// Click refresh
-			fireEvent.click(screen.getByText("Refresh"));
+			// Find the Ready Tasks panel's refresh button
+			const readyTasksPanel = screen.getByText("Ready Tasks").closest("div");
+			const refreshButton = readyTasksPanel?.parentElement?.querySelector("button");
 
-			await waitFor(() => {
-				expect(readyTasksFetchCount).toBe(2);
-			});
+			if (refreshButton) {
+				fireEvent.click(refreshButton);
+
+				await waitFor(() => {
+					expect(readyTasksFetchCount).toBe(2);
+				});
+			}
 		});
 	});
 });

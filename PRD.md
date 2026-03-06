@@ -540,7 +540,7 @@ A web-based dashboard that:
   - On approval: update `RoutingRecord` to reflect new filing; preserve original with status `refiled`
 - [x] Add `GET /api/refile/drift-report` dashboard endpoint
   - Returns drifted files with LLM assessment, reason, model_used; filterable by priority and root bin
-- [ ] Add drift report panel to Agents dashboard page
+- [x] Add drift report panel to Agents dashboard page
   - Color-coded: red for likely accidental, yellow for likely intentional; LLM reasoning visible
   - Approve (refile) / Dismiss (mark intentional) per item; bulk approve for likely-accidental
 - [ ] Add tests
