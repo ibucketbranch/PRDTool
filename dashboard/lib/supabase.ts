@@ -1165,7 +1165,7 @@ export async function naturalLanguageSearch(
                 parsedQuery.organizations.length > 0
                   ? parsedQuery.organizations
                   : null,
-              result_limit: limit * 2,
+              result_limit: limit,
               result_offset: offset,
             }
           );
@@ -1200,7 +1200,7 @@ export async function naturalLanguageSearch(
                   parsedQuery.organizations.length > 0
                     ? parsedQuery.organizations
                     : null,
-                result_limit: limit * 2,
+                result_limit: limit,
                 result_offset: offset,
               }
             );
@@ -1377,7 +1377,7 @@ async function fallbackToIlikeSearch(
       q = q.or(textConditions.join(","));
     }
 
-    q = q.range(offset, offset + limit * 2 - 1).limit(limit * 2);
+    q = q.range(offset, offset + limit - 1).limit(limit);
     return q;
   };
 
