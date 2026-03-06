@@ -185,6 +185,12 @@ from organizer.inbox_processor import (
     ClassificationComparison,
     ROUTING_RULES,
 )
+from organizer.relationship_linker import (
+    FileRelationship,
+    RelationshipCluster,
+    RelationshipLinker,
+    detect_relationships,
+)
 
 __all__ = [
     "normalize_folder_name",
@@ -338,4 +344,8 @@ __all__ = [
     "LLMClassificationResult",
     "ClassificationComparison",
     "ROUTING_RULES",
+    "FileRelationship",
+    "RelationshipCluster",
+    "RelationshipLinker",
+    "detect_relationships",
 ]

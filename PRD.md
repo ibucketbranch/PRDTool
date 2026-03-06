@@ -495,7 +495,7 @@ A web-based dashboard that:
 - [x] Add dedup step to agent cycle
   - After scatter detection, run dedup; add proposals as `ProposedAction` with `action_type="dedup_archive"`
   - Always queue for review (never auto-execute dedup)
-- [ ] Create `organizer/relationship_linker.py` module
+- [x] Create `organizer/relationship_linker.py` module
   - `FileRelationship` dataclass: source_path, related_path, relationship_type, reason, model_used
   - `detect_relationships(dna_registry, llm_client) -> list[FileRelationship]`: for files in same bin, ask **T2 Smart** to identify companions, versions, references
   - Escalation: clusters > 50 files escalate to **T3 Cloud**

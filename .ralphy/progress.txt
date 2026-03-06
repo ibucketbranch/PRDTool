@@ -2995,3 +2995,47 @@ Task completed successfully.
 - All 43 dedup_engine tests pass
 - No new linting errors introduced (pre-existing E402 and F841 issues remain)
 - Task "Add dedup step to agent cycle" marked complete in PRD.md
+
+## 2026-03-05 (continued)
+- Created `organizer/relationship_linker.py` module (Phase 13: Intelligence-Agent)
+  - `FileRelationship` dataclass: source_path, related_path, relationship_type, reason, model_used
+  - `RelationshipCluster` dataclass: groups files in same bin for analysis
+  - `detect_relationships(dna_registry, llm_client)`: main entry point for relationship detection
+  - `_get_bin_from_path()`: extracts bin (top-level category) from file path
+  - `_group_files_by_bin()`: groups all files by their containing bin
+  - `_get_candidate_pairs()`: prioritizes file pairs for analysis based on:
+    - Filename keyword overlap
+    - Tag overlap
+    - Same document type
+  - `_calculate_pair_priority()`: scores pairs for relationship likelihood
+  - `_analyze_relationship_with_llm()`: T2 Smart LLM analysis for relationship detection
+    - Escalates to T3 Cloud for clusters > 50 files
+    - Returns FileRelationship with companion/version_of/reference/related types
+  - `_analyze_relationship_with_keywords()`: fallback when LLM unavailable
+    - Detects VA evidence sets (nexus + dbq + claim)
+    - Detects tax document sets (1040 + W2 + schedules)
+    - Detects legal document sets (complaint + motion + brief)
+    - Detects version patterns (_v1, _v2, date suffixes)
+  - `RelationshipLinker` class: high-level interface
+    - `find_all()`: detect all relationships in registry
+    - `find_for_file(path)`: find relationships involving specific file
+    - `get_companions(path)`: get companion files for a given file
+    - `get_report()`: summary statistics (total, by type, LLM vs keyword detected)
+- Updated `organizer/__init__.py` to export:
+  - FileRelationship, RelationshipCluster, RelationshipLinker, detect_relationships
+- Created 47 tests in `tests/test_relationship_linker.py`:
+  - TestFileRelationship: creation, to_dict, from_dict, roundtrip serialization
+  - TestRelationshipCluster: file_count, T3 escalation threshold
+  - TestGetBinFromPath: VA bin, finances bin, employment bin, fallback to parent
+  - TestGroupFilesByBin: correct grouping, empty registry
+  - TestCalculatePairPriority: high priority matching keywords, low priority no overlap, doc type boost
+  - TestGetCandidatePairs: limited pairs, empty list, single file
+  - TestAnalyzeRelationshipWithKeywords: VA companions, tax companions, version patterns, unrelated files
+  - TestAnalyzeRelationshipWithLLM: companion detection, no relationship, failure returns none, T3 escalation
+  - TestParseLLMJsonResponse: direct JSON, code block, extra text, invalid
+  - TestDetectRelationships: empty registry, single file, keyword fallback, LLM usage
+  - TestRelationshipLinker: init, find_all, find_for_file, get_companions, get_report, relationships property
+  - TestSimilarityRatio: identical, different, partial overlap, empty string
+  - TestIntegration: full workflow with keyword fallback, linker full workflow
+- All 47 tests pass, linting passes
+- Task "Create organizer/relationship_linker.py module" marked complete in PRD.md
