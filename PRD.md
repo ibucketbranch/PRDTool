@@ -526,7 +526,7 @@ A web-based dashboard that:
     `"File '{filename}' was filed at '{original_path}' on {filed_date}. It is now at '{current_path}'. Was this move intentional (user reorganized) or accidental (drag-drop)? Reply JSON {likely_intentional: bool, confidence, reason}"`
   - Escalation: T1 confidence < 0.75 → **T2 Smart** with file content for deeper analysis
   - Graceful degradation: if LLM unavailable, classify by path type (valid taxonomy path = likely_intentional, Desktop/Downloads/root = likely_accidental)
-- [ ] LLM-powered refile destination suggestion
+- [x] LLM-powered refile destination suggestion
   - When original location no longer exists, ask **T2 Smart**:
     `"File '{filename}' was originally at '{original_path}' but that folder is gone. Based on the current taxonomy and file content, where should it go now? Reply JSON {suggested_path, confidence, reason}"`
 - [ ] Add drift detection step to agent cycle

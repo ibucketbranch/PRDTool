@@ -3185,3 +3185,14 @@ Task completed successfully.
   - EdgeCases: empty history, inbox skip, invalid timestamp, lookback, status filter, confidence clamp, LLM unavailable
 - All 54 tests pass, linting passes
 - Task "Create `organizer/refile_agent.py` module" marked complete in PRD.md
+
+## 2026-03-05
+- Marked Phase 14 task "LLM-powered refile destination suggestion" as complete
+  - Task was already fully implemented in organizer/refile_agent.py (lines 569-647, 649-709, 845-882)
+  - `_suggest_destination_with_llm()`: Uses T2 Smart via TaskProfile(task_type="analyze", complexity="medium")
+  - Prompt matches PRD: "File was originally at... folder is gone... where should it go now?"
+  - Returns JSON with suggested_path, confidence, reason
+  - `_suggest_destination_with_keywords()`: Keyword-based fallback for tax, invoice, bill, resume, VA, etc.
+  - `suggest_destination()`: Public method combining LLM and keyword approaches
+  - Tests already exist and pass: TestDestinationSuggestion, TestDestinationSuggestionLogic (6 tests)
+- Updated PRD.md to mark task as complete (changed '- [ ]' to '- [x]')
