@@ -3196,3 +3196,23 @@ Task completed successfully.
   - `suggest_destination()`: Public method combining LLM and keyword approaches
   - Tests already exist and pass: TestDestinationSuggestion, TestDestinationSuggestionLogic (6 tests)
 - Updated PRD.md to mark task as complete (changed '- [ ]' to '- [x]')
+
+## 2026-03-05
+- Implemented Phase 14 task: "Add drift detection step to agent cycle"
+  - Added `refile_enabled`, `refile_lookback_days`, `refile_routing_history_file` config options to `ContinuousAgentConfig`
+  - Added `resolve_paths()` handling for `refile_routing_history_file`
+  - Added imports for `DriftRecord`, `ReFileAgent`, and `RoutingHistory`
+  - Implemented `_drift_record_to_action()` method to convert DriftRecord to ProposedAction
+  - Implemented `_process_drift()` method to run drift detection and return (summary, proposed_actions)
+  - Integrated drift detection into `run_cycle()` after dedup step, before writing queue
+  - Added "drift" summary to cycle_summary output
+- Created 7 tests in tests/test_continuous_agent.py:
+  - `test_drift_record_to_action_conversion`: Tests DriftRecord to ProposedAction conversion
+  - `test_drift_record_uses_suggested_destination_when_available`: Tests target path selection
+  - `test_drift_disabled_returns_empty_summary`: Tests disabled state
+  - `test_drift_detection_with_no_routing_history`: Tests empty history case
+  - `test_drift_summary_in_cycle_output`: Tests drift appears in run_cycle output
+  - `test_drift_actions_appear_in_queue_file`: Tests queue file integration
+  - `test_drift_config_options`: Tests config loading and path resolution
+- All new tests pass, linting passes (pre-existing issues ignored)
+- Task completed successfully

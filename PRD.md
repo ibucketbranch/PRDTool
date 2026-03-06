@@ -529,7 +529,7 @@ A web-based dashboard that:
 - [x] LLM-powered refile destination suggestion
   - When original location no longer exists, ask **T2 Smart**:
     `"File '{filename}' was originally at '{original_path}' but that folder is gone. Based on the current taxonomy and file content, where should it go now? Reply JSON {suggested_path, confidence, reason}"`
-- [ ] Add drift detection step to agent cycle
+- [x] Add drift detection step to agent cycle
   - Runs last in cycle; only checks files filed in the last N days (default 90)
   - `ProposedAction` with `action_type="refile_drift"`, always queued for review
   - Each proposal includes `reason` and `model_used`

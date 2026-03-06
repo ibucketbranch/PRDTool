@@ -32,6 +32,8 @@ from organizer.dry_run_validator import validate_dry_run
 from organizer.file_dna import DNARegistry
 from organizer.file_operations import execute_consolidation_plan
 from organizer.inbox_processor import InboxProcessor, InboxRouting
+from organizer.refile_agent import DriftRecord, ReFileAgent
+from organizer.routing_history import RoutingHistory
 from organizer.scatter_detector import ScatterDetector, ScatterViolation
 
 
@@ -87,6 +89,10 @@ class ContinuousAgentConfig:
     # Dedup engine
     dedup_enabled: bool = True
     dedup_max_files: int = 10_000
+    # Refile/drift detection settings
+    refile_enabled: bool = True
+    refile_lookback_days: int = 90
+    refile_routing_history_file: str = ".organizer/agent/routing_history.json"
 
     @classmethod
     def load(cls, path: str | Path) -> "ContinuousAgentConfig":
@@ -127,6 +133,10 @@ class ContinuousAgentConfig:
             self.prd_task_status_file = str(Path(self.prd_task_status_file).resolve())
         if self.dna_registry_file:
             self.dna_registry_file = str(Path(self.dna_registry_file).resolve())
+        if self.refile_routing_history_file:
+            self.refile_routing_history_file = str(
+                Path(self.refile_routing_history_file).resolve()
+            )
 
 
 PROJECT_VERSION_TOKENS = {
@@ -387,7 +397,7 @@ class ContinuousOrganizerAgent:
         scatter_summary, scatter_actions = self._process_scatter(cycle_id)
         proposed_actions.extend(scatter_actions)
 
-        # Dedup detection (after scatter, before writing queue)
+        # Dedup detection (after scatter, before drift)
         # Dedup proposals are always queued for review (never auto-executed)
         if self.config.dedup_enabled:
             dedup_summary, dedup_actions = self._run_dedup_scan(cycle_id)
@@ -400,6 +410,11 @@ class ContinuousOrganizerAgent:
                 "total_wasted_bytes": 0,
                 "queue_count": 0,
             }
+
+        # Drift detection (runs last, only checks files filed in last N days)
+        # Drift proposals are always queued for review (never auto-executed)
+        drift_summary, drift_actions = self._process_drift(cycle_id)
+        proposed_actions.extend(drift_actions)
 
         queue_path = Path(self.config.queue_dir) / f"pending_{cycle_id}.json"
         queue_path.write_text(
@@ -496,6 +511,7 @@ class ContinuousOrganizerAgent:
             "root_strays": root_stray_summary,
             "inbox": inbox_summary,
             "scatter": scatter_summary,
+            "drift": drift_summary,
             "dry_run": dry_run_summary,
             "dna": dna_summary,
             "dedup": dedup_summary,
@@ -1143,6 +1159,137 @@ class ContinuousOrganizerAgent:
                         "reason": v.reason,
                     }
                     for v in result.violations
+                ],
+            },
+            actions,
+        )
+
+    def _drift_record_to_action(
+        self, drift: DriftRecord, cycle_id: str, action_index: int
+    ) -> ProposedAction:
+        """Convert DriftRecord to ProposedAction for queue.
+
+        Drift actions are always queued for review (never auto-executed).
+        High-priority (likely_accidental) drifts should be reviewed first.
+        """
+        # Build reasoning list
+        reasoning = [
+            f"assessment={drift.drift_assessment}",
+            f"original_location={drift.original_filed_path}",
+            f"current_location={drift.current_path}",
+            f"reason={drift.reason}",
+        ]
+        if drift.model_used:
+            reasoning.append(f"model={drift.model_used}")
+        if drift.suggested_destination:
+            reasoning.append(f"suggested_destination={drift.suggested_destination}")
+
+        # Determine target: use suggested destination if available, otherwise original
+        target = drift.suggested_destination or drift.original_filed_path
+
+        return ProposedAction(
+            action_id=f"{cycle_id}:refile_drift:{action_index}",
+            created_at=_now_iso(),
+            source_folder=drift.current_path,
+            target_folder=target,
+            group_name="refile_drift",
+            confidence=drift.confidence,
+            reasoning=reasoning,
+            action_type="refile_drift",
+            status="pending",
+        )
+
+    def _process_drift(
+        self, cycle_id: str
+    ) -> tuple[dict[str, Any], list[ProposedAction]]:
+        """Run drift detection and return (summary, proposed_actions).
+
+        Drift detection identifies files that have moved from their filed
+        locations. Uses LLM to assess if drift was intentional or accidental.
+        All drift actions are queued for review - never auto-executed.
+        """
+        if not self.config.refile_enabled:
+            return (
+                {
+                    "enabled": False,
+                    "files_checked": 0,
+                    "files_still_in_place": 0,
+                    "files_missing": 0,
+                    "drifts_detected": 0,
+                    "accidental": 0,
+                    "intentional": 0,
+                    "queue_count": 0,
+                    "model_used": "",
+                    "used_keyword_fallback": False,
+                },
+                [],
+            )
+
+        # Try to get LLM client and model router if available
+        llm_client = None
+        model_router = None
+        prompt_registry = None
+        try:
+            from organizer.llm_client import LLMClient
+            from organizer.model_router import ModelRouter
+            from organizer.prompt_registry import PromptRegistry
+
+            llm_client = LLMClient()
+            model_router = ModelRouter(llm_client)
+            prompt_registry = PromptRegistry()
+        except Exception:
+            # LLM not available, will use keyword fallback
+            pass
+
+        # Load routing history
+        routing_history = RoutingHistory(self.config.refile_routing_history_file)
+
+        # Create ReFileAgent
+        agent = ReFileAgent(
+            llm_client=llm_client,
+            model_router=model_router,
+            prompt_registry=prompt_registry,
+            use_llm=llm_client is not None,
+            lookback_days=self.config.refile_lookback_days,
+        )
+
+        # Run drift detection
+        result = agent.detect_drift(
+            routing_history=routing_history,
+            search_root=self.config.base_path,
+            lookback_days=self.config.refile_lookback_days,
+        )
+
+        # Convert drift records to proposed actions
+        # Only propose drifted files that need attention
+        actions: list[ProposedAction] = []
+        for i, drift in enumerate(result.drift_records):
+            actions.append(
+                self._drift_record_to_action(drift, cycle_id, i + 1)
+            )
+
+        return (
+            {
+                "enabled": True,
+                "files_checked": result.files_checked,
+                "files_still_in_place": result.files_still_in_place,
+                "files_missing": result.files_missing,
+                "drifts_detected": len(result.drift_records),
+                "accidental": len(result.get_accidental_drifts()),
+                "intentional": len(result.get_intentional_drifts()),
+                "queue_count": len(actions),
+                "model_used": result.model_used,
+                "used_keyword_fallback": result.used_keyword_fallback,
+                "drifts": [
+                    {
+                        "file": d.file_path,
+                        "original_path": d.original_filed_path,
+                        "current_path": d.current_path,
+                        "assessment": d.drift_assessment,
+                        "confidence": d.confidence,
+                        "reason": d.reason,
+                    }
+                    for d in result.drift_records
                 ],
             },
             actions,
