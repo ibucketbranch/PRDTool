@@ -800,7 +800,7 @@ A web-based dashboard that:
   - "Refresh" reloads the WebView
   - "Quit" terminates the app
   - If dashboard server is not running, error page displays with retry
-- [ ] Optional: Create `com.prdtool.dashboard.plist` launchd service for auto-start
+- [x] Optional: Create `com.prdtool.dashboard.plist` launchd service for auto-start
   on login (like the Python agent)
 
 #### Technical Notes

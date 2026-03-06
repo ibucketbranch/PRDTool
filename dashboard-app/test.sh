@@ -237,6 +237,101 @@ else
 fi
 
 # =============================================================================
+# Launchd Service Tests
+# =============================================================================
+echo ""
+echo "━━━ Launchd Service ━━━"
+
+# Test: Launchd plist exists
+if [[ -f "${SCRIPT_DIR}/com.prdtool.dashboard.plist" ]]; then
+    pass "com.prdtool.dashboard.plist exists"
+else
+    fail "com.prdtool.dashboard.plist is missing"
+fi
+
+# Test: Correct service label
+if grep -q "<string>com.prdtool.dashboard</string>" "${SCRIPT_DIR}/com.prdtool.dashboard.plist"; then
+    pass "Launchd label: com.prdtool.dashboard"
+else
+    fail "Incorrect launchd label"
+fi
+
+# Test: RunAtLoad enabled
+if grep -q "<key>RunAtLoad</key>" "${SCRIPT_DIR}/com.prdtool.dashboard.plist" && \
+   grep -A1 "<key>RunAtLoad</key>" "${SCRIPT_DIR}/com.prdtool.dashboard.plist" | grep -q "<true/>"; then
+    pass "RunAtLoad=true (starts on login)"
+else
+    fail "RunAtLoad not enabled"
+fi
+
+# Test: LimitLoadToSessionType is Aqua (GUI only)
+if grep -q "<key>LimitLoadToSessionType</key>" "${SCRIPT_DIR}/com.prdtool.dashboard.plist" && \
+   grep -A1 "<key>LimitLoadToSessionType</key>" "${SCRIPT_DIR}/com.prdtool.dashboard.plist" | grep -q "Aqua"; then
+    pass "LimitLoadToSessionType=Aqua (GUI session only)"
+else
+    fail "LimitLoadToSessionType not set to Aqua"
+fi
+
+# Test: Points to correct executable
+if grep -q "PRDDashboard.app/Contents/MacOS/PRDDashboard" "${SCRIPT_DIR}/com.prdtool.dashboard.plist"; then
+    pass "Program path points to correct executable"
+else
+    fail "Program path incorrect"
+fi
+
+# Test: Has log paths configured
+if grep -q "StandardOutPath" "${SCRIPT_DIR}/com.prdtool.dashboard.plist" && \
+   grep -q "StandardErrorPath" "${SCRIPT_DIR}/com.prdtool.dashboard.plist"; then
+    pass "Standard out/error log paths configured"
+else
+    fail "Log paths not configured"
+fi
+
+# Test: KeepAlive configured (restart on crash only)
+if grep -q "<key>KeepAlive</key>" "${SCRIPT_DIR}/com.prdtool.dashboard.plist" && \
+   grep -q "<key>SuccessfulExit</key>" "${SCRIPT_DIR}/com.prdtool.dashboard.plist"; then
+    pass "KeepAlive configured (restarts on crash, not on quit)"
+else
+    fail "KeepAlive not properly configured"
+fi
+
+# Test: Install script exists and is executable
+if [[ -x "${SCRIPT_DIR}/install-launchd.sh" ]]; then
+    pass "install-launchd.sh exists and is executable"
+else
+    fail "install-launchd.sh is missing or not executable"
+fi
+
+# Test: Install script has install command
+if grep -q "do_install\(\)" "${SCRIPT_DIR}/install-launchd.sh"; then
+    pass "install-launchd.sh has install command"
+else
+    fail "install-launchd.sh missing install command"
+fi
+
+# Test: Install script has uninstall command
+if grep -q "do_uninstall\(\)" "${SCRIPT_DIR}/install-launchd.sh"; then
+    pass "install-launchd.sh has uninstall command"
+else
+    fail "install-launchd.sh missing uninstall command"
+fi
+
+# Test: Install script has status command
+if grep -q "do_status\(\)" "${SCRIPT_DIR}/install-launchd.sh"; then
+    pass "install-launchd.sh has status command"
+else
+    fail "install-launchd.sh missing status command"
+fi
+
+# Test: Install script checks for app existence
+if grep -q "check_app_exists" "${SCRIPT_DIR}/install-launchd.sh" && \
+   grep -q "PRDDashboard.app" "${SCRIPT_DIR}/install-launchd.sh"; then
+    pass "install-launchd.sh verifies app exists before installing"
+else
+    fail "install-launchd.sh doesn't verify app existence"
+fi
+
+# =============================================================================
 # Swift Syntax Validation
 # =============================================================================
 echo ""

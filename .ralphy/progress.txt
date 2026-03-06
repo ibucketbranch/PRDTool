@@ -4400,3 +4400,36 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
   - Next.js build succeeds with new routes
 - Updated PRD to mark task as complete
 - Task completed successfully
+
+## 2026-03-06
+- Implemented Phase 18 (final): launchd service for auto-start on login
+  - Created `dashboard-app/com.prdtool.dashboard.plist`:
+    - Label: com.prdtool.dashboard
+    - RunAtLoad=true (starts on login)
+    - Program points to PRDDashboard.app executable
+    - LimitLoadToSessionType=Aqua (GUI session only)
+    - KeepAlive with SuccessfulExit=false (restart on crash, not on quit)
+    - ThrottleInterval=10 (10s delay to allow services to initialize)
+    - ProcessType=Background (low priority)
+    - Standard out/error logs configured
+  - Created `dashboard-app/install-launchd.sh`:
+    - install command: copies plist to ~/Library/LaunchAgents, bootstraps service
+    - uninstall command: bootout service, removes plist
+    - status command: checks if service is loaded
+    - Validates app exists before installing
+    - Colored output for pass/warn/error states
+  - Updated `dashboard-app/test.sh` with 12 new launchd tests:
+    - Plist existence and label tests
+    - RunAtLoad enabled test
+    - LimitLoadToSessionType Aqua test
+    - Program path test
+    - Log paths configured test
+    - KeepAlive configuration test
+    - Install script existence and executability test
+    - Install/uninstall/status command tests
+    - App existence verification test
+  - All 37 tests pass (1 skipped due to SDK/toolchain mismatch)
+  - Plist validates with plutil
+  - Pre-existing lint errors in other files (not from this change)
+- Updated PRD to mark task as complete
+- Phase 18 is now COMPLETE

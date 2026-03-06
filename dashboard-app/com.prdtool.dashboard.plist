@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label (unique identifier) -->
+    <key>Label</key>
+    <string>com.prdtool.dashboard</string>
+
+    <!-- Program to run (the menu bar app) -->
+    <key>Program</key>
+    <string>/Users/michaelvalderrama/Websites/PRDTool/dashboard-app/build/PRDDashboard.app/Contents/MacOS/PRDDashboard</string>
+
+    <!-- Run on load (at login) -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Delay start by 10 seconds to allow other services to initialize -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/michaelvalderrama/Websites/PRDTool/dashboard-app</string>
+
+    <!-- Standard output and error logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/michaelvalderrama/.prdtool_dashboard_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/michaelvalderrama/.prdtool_dashboard_stderr.log</string>
+
+    <!-- Keep alive - restart if app exits unexpectedly -->
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Only keep alive if the app crashes, not if user quits it -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Run only when user is logged in (GUI session) -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+
+    <!-- Process type - mark as background app -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Nice level - low priority to not interfere with user apps -->
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
