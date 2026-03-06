@@ -5,7 +5,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from organizer.cli import (
     create_parser,
@@ -17,6 +17,7 @@ from organizer.cli import (
     get_content_mismatch_groups,
     main,
     run_execute,
+    run_experiment_cli,
     run_learn_confirm,
     run_learn_status,
     run_learn_structure,
@@ -4259,3 +4260,482 @@ class TestLearnMainIntegration:
                 assert exit_code == 1
             finally:
                 os.chdir(original_cwd)
+
+
+class TestExperimentArgumentParsing:
+    """Tests for --experiment argument parsing."""
+
+    def test_experiment_argument_default_task_type(self):
+        """Test --experiment default task type is classify."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "model1",
+            "--files", ".",
+        ])
+        assert args.experiment == "classify"
+
+    def test_experiment_argument_custom_task_type(self):
+        """Test --experiment with custom task type."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment", "validate",
+            "--models", "model1",
+            "--files", ".",
+        ])
+        assert args.experiment == "validate"
+
+    def test_experiment_argument_analyze_type(self):
+        """Test --experiment with analyze task type."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment", "analyze",
+            "--models", "model1",
+            "--files", ".",
+        ])
+        assert args.experiment == "analyze"
+
+    def test_models_argument(self):
+        """Test --models argument parsing."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "llama3.1:8b,qwen2.5:14b",
+            "--files", ".",
+        ])
+        assert args.models == "llama3.1:8b,qwen2.5:14b"
+
+    def test_files_argument_directory(self):
+        """Test --files argument with directory."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "model1",
+            "--files", "/path/to/files",
+        ])
+        assert args.files == "/path/to/files"
+
+    def test_files_argument_multiple_files(self):
+        """Test --files argument with comma-separated files."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "model1",
+            "--files", "file1.pdf,file2.pdf,file3.pdf",
+        ])
+        assert args.files == "file1.pdf,file2.pdf,file3.pdf"
+
+    def test_experiment_name_argument(self):
+        """Test --experiment-name argument."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "model1",
+            "--files", ".",
+            "--experiment-name", "my_test",
+        ])
+        assert args.experiment_name == "my_test"
+
+    def test_experiment_name_default_is_none(self):
+        """Test --experiment-name defaults to None."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "model1",
+            "--files", ".",
+        ])
+        assert args.experiment_name is None
+
+
+class TestExperimentArgumentValidation:
+    """Tests for --experiment argument validation."""
+
+    def test_experiment_requires_models(self):
+        """Test --experiment requires --models."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--files", ".",
+        ])
+        errors = validate_args(args)
+        assert any("--models" in e for e in errors)
+
+    def test_experiment_requires_files(self):
+        """Test --experiment requires --files."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "model1",
+        ])
+        errors = validate_args(args)
+        assert any("--files" in e for e in errors)
+
+    def test_experiment_invalid_task_type(self):
+        """Test --experiment with invalid task type."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment", "invalid_type",
+            "--models", "model1",
+            "--files", ".",
+        ])
+        errors = validate_args(args)
+        assert any("Invalid experiment task type" in e for e in errors)
+
+    def test_experiment_valid_args_no_errors(self):
+        """Test --experiment with valid args has no validation errors."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parser = create_parser()
+            args = parser.parse_args([
+                "--experiment", "classify",
+                "--models", "model1,model2",
+                "--files", tmpdir,
+            ])
+            errors = validate_args(args)
+            assert len(errors) == 0
+
+    def test_models_without_experiment(self):
+        """Test --models without --experiment is invalid."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--scan",
+            "--models", "model1",
+        ])
+        errors = validate_args(args)
+        assert any("--models can only be used with --experiment" in e for e in errors)
+
+    def test_files_without_experiment(self):
+        """Test --files without --experiment is invalid."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--scan",
+            "--files", "/path",
+        ])
+        errors = validate_args(args)
+        assert any("--files can only be used with --experiment" in e for e in errors)
+
+    def test_experiment_name_without_experiment(self):
+        """Test --experiment-name without --experiment is invalid."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--scan",
+            "--experiment-name", "test",
+        ])
+        errors = validate_args(args)
+        assert any("--experiment-name can only be used with --experiment" in e for e in errors)
+
+    def test_files_path_not_exist(self):
+        """Test --files with non-existent path."""
+        parser = create_parser()
+        args = parser.parse_args([
+            "--experiment",
+            "--models", "model1",
+            "--files", "/nonexistent/path/12345",
+        ])
+        errors = validate_args(args)
+        assert any("does not exist" in e for e in errors)
+
+    def test_files_comma_separated_nonexistent(self):
+        """Test --files with comma-separated files, one missing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            existing_file = Path(tmpdir) / "exists.txt"
+            existing_file.touch()
+
+            parser = create_parser()
+            args = parser.parse_args([
+                "--experiment",
+                "--models", "model1",
+                "--files", f"{existing_file},/nonexistent/file.txt",
+            ])
+            errors = validate_args(args)
+            assert any("does not exist" in e for e in errors)
+
+    def test_experiment_is_valid_action(self):
+        """Test --experiment is recognized as a valid action."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parser = create_parser()
+            args = parser.parse_args([
+                "--experiment",
+                "--models", "model1",
+                "--files", tmpdir,
+            ])
+            errors = validate_args(args)
+            # Should not contain "Must specify at least one action" error
+            assert not any("Must specify at least one action" in e for e in errors)
+
+
+class TestRunExperimentCli:
+    """Tests for run_experiment_cli function."""
+
+    def test_run_experiment_no_models_parsed(self, capsys):
+        """Test run_experiment_cli with empty models string."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parser = create_parser()
+            # Parse with empty models
+            args = parser.parse_args([
+                "--experiment",
+                "--models", "  ",
+                "--files", tmpdir,
+            ])
+            # Manually set models to whitespace-only (parser wouldn't allow this normally)
+            args.models = "  "
+
+            exit_code = run_experiment_cli(args)
+            assert exit_code == 1
+
+            captured = capsys.readouterr()
+            assert "No models specified" in captured.err
+
+    def test_run_experiment_no_files_found(self, capsys):
+        """Test run_experiment_cli with empty directory."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create empty directory (no files)
+            parser = create_parser()
+            args = parser.parse_args([
+                "--experiment",
+                "--models", "model1",
+                "--files", tmpdir,
+            ])
+
+            exit_code = run_experiment_cli(args)
+            assert exit_code == 1
+
+            captured = capsys.readouterr()
+            assert "No test files found" in captured.err
+
+    @patch("organizer.llm_client.LLMClient")
+    def test_run_experiment_ollama_not_available(self, mock_llm_class, capsys):
+        """Test run_experiment_cli when Ollama is not available."""
+
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False
+        mock_llm_class.return_value = mock_client
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test file
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("test content")
+
+            parser = create_parser()
+            args = parser.parse_args([
+                "--experiment",
+                "--models", "model1",
+                "--files", tmpdir,
+            ])
+
+            exit_code = run_experiment_cli(args)
+            assert exit_code == 1
+
+            captured = capsys.readouterr()
+            assert "Ollama is not available" in captured.err
+
+    @patch("organizer.llm_client.LLMClient")
+    def test_run_experiment_success(self, mock_llm_class, capsys):
+        """Test run_experiment_cli successful execution."""
+        from organizer.llm_experiment import LatencyStats
+
+        # Mock LLM client
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = ["model1", "model2"]
+        mock_llm_class.return_value = mock_client
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test file
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("test content")
+
+            with patch("organizer.cli.run_experiment") as mock_run_exp:
+                with patch("organizer.cli.save_experiment_result") as mock_save:
+                    # Mock experiment result
+                    mock_result = MagicMock()
+                    mock_result.experiment = MagicMock(
+                        name="test",
+                        models_to_compare=["model1", "model2"],
+                        test_files=["/path/file.txt"],
+                    )
+                    mock_result.file_results = []
+                    mock_result.latency_stats = {
+                        "model1": LatencyStats.from_durations("model1", [100]),
+                        "model2": LatencyStats.from_durations("model2", [200]),
+                    }
+                    mock_result.agreement_rate = 1.0
+                    mock_result.accuracy_vs_ground_truth = None
+                    mock_result.total_duration_ms = 300
+                    mock_result.started_at = "2026-03-05T10:00:00"
+                    mock_result.completed_at = "2026-03-05T10:00:01"
+                    mock_run_exp.return_value = mock_result
+                    mock_save.return_value = Path("/tmp/result.json")
+
+                    parser = create_parser()
+                    args = parser.parse_args([
+                        "--experiment",
+                        "--models", "model1,model2",
+                        "--files", tmpdir,
+                    ])
+
+                    exit_code = run_experiment_cli(args)
+                    assert exit_code == 0
+
+                    captured = capsys.readouterr()
+                    assert "LLM MODEL COMPARISON EXPERIMENT" in captured.out
+                    assert "EXPERIMENT COMPLETE" in captured.out
+
+    @patch("organizer.llm_client.LLMClient")
+    def test_run_experiment_with_custom_name(self, mock_llm_class, capsys):
+        """Test run_experiment_cli with custom experiment name."""
+        from organizer.llm_experiment import LatencyStats
+
+        # Mock LLM client
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = ["model1"]
+        mock_llm_class.return_value = mock_client
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("test content")
+
+            with patch("organizer.cli.run_experiment") as mock_run_exp:
+                with patch("organizer.cli.save_experiment_result") as mock_save:
+                    # Mock experiment result
+                    mock_result = MagicMock()
+                    mock_result.experiment = MagicMock(
+                        name="my_custom_experiment",
+                        models_to_compare=["model1"],
+                        test_files=["/path/file.txt"],
+                    )
+                    mock_result.file_results = []
+                    mock_result.latency_stats = {
+                        "model1": LatencyStats.from_durations("model1", [100]),
+                    }
+                    mock_result.agreement_rate = 1.0
+                    mock_result.accuracy_vs_ground_truth = None
+                    mock_result.total_duration_ms = 100
+                    mock_result.started_at = "2026-03-05T10:00:00"
+                    mock_result.completed_at = "2026-03-05T10:00:01"
+                    mock_run_exp.return_value = mock_result
+                    mock_save.return_value = Path("/tmp/result.json")
+
+                    parser = create_parser()
+                    args = parser.parse_args([
+                        "--experiment",
+                        "--models", "model1",
+                        "--files", tmpdir,
+                        "--experiment-name", "my_custom_experiment",
+                    ])
+
+                    exit_code = run_experiment_cli(args)
+                    assert exit_code == 0
+
+                    captured = capsys.readouterr()
+                    assert "my_custom_experiment" in captured.out
+
+    @patch("organizer.llm_client.LLMClient")
+    def test_run_experiment_handles_comma_separated_files(
+        self, mock_llm_class, capsys
+    ):
+        """Test run_experiment_cli with comma-separated file paths."""
+        from organizer.llm_experiment import LatencyStats
+
+        # Mock LLM client
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = ["model1"]
+        mock_llm_class.return_value = mock_client
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create multiple test files
+            file1 = Path(tmpdir) / "test1.txt"
+            file2 = Path(tmpdir) / "test2.txt"
+            file1.write_text("content 1")
+            file2.write_text("content 2")
+
+            # Mock run_experiment to check it was called with both files
+            with patch("organizer.cli.run_experiment") as mock_run:
+                with patch("organizer.cli.save_experiment_result") as mock_save:
+                    mock_result = MagicMock()
+                    mock_result.experiment = MagicMock(
+                        name="test",
+                        models_to_compare=["model1"],
+                        test_files=[str(file1), str(file2)],
+                    )
+                    mock_result.file_results = []
+                    mock_result.latency_stats = {
+                        "model1": LatencyStats.from_durations("model1", [100]),
+                    }
+                    mock_result.agreement_rate = 1.0
+                    mock_result.accuracy_vs_ground_truth = None
+                    mock_result.total_duration_ms = 200
+                    mock_result.started_at = "2026-03-05T10:00:00"
+                    mock_result.completed_at = "2026-03-05T10:00:01"
+                    mock_run.return_value = mock_result
+                    mock_save.return_value = Path("/tmp/result.json")
+
+                    parser = create_parser()
+                    args = parser.parse_args([
+                        "--experiment",
+                        "--models", "model1",
+                        "--files", f"{file1},{file2}",
+                    ])
+
+                    exit_code = run_experiment_cli(args)
+                    assert exit_code == 0
+
+                    # Verify run_experiment was called
+                    mock_run.assert_called_once()
+                    # Check the experiment had both files
+                    call_args = mock_run.call_args
+                    experiment = call_args[1].get("experiment") or call_args[0][0]
+                    assert len(experiment.test_files) == 2
+
+
+class TestExperimentMainIntegration:
+    """Integration tests for --experiment via main()."""
+
+    @patch("organizer.llm_client.LLMClient")
+    def test_main_dispatches_to_experiment(self, mock_llm_class, capsys):
+        """Test main() dispatches to run_experiment_cli."""
+        from organizer.llm_experiment import LatencyStats
+
+        # Mock LLM client
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = True
+        mock_client.list_models.return_value = ["model1"]
+        mock_llm_class.return_value = mock_client
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("test content")
+
+            with patch("organizer.cli.run_experiment") as mock_run_exp:
+                with patch("organizer.cli.save_experiment_result") as mock_save:
+                    # Mock experiment result
+                    mock_result = MagicMock()
+                    mock_result.experiment = MagicMock(
+                        name="test",
+                        models_to_compare=["model1"],
+                        test_files=["/path/file.txt"],
+                    )
+                    mock_result.file_results = []
+                    mock_result.latency_stats = {
+                        "model1": LatencyStats.from_durations("model1", [100]),
+                    }
+                    mock_result.agreement_rate = 1.0
+                    mock_result.accuracy_vs_ground_truth = None
+                    mock_result.total_duration_ms = 100
+                    mock_result.started_at = "2026-03-05T10:00:00"
+                    mock_result.completed_at = "2026-03-05T10:00:01"
+                    mock_run_exp.return_value = mock_result
+                    mock_save.return_value = Path("/tmp/result.json")
+
+                    exit_code = main([
+                        "--experiment",
+                        "--models", "model1",
+                        "--files", tmpdir,
+                    ])
+
+                    assert exit_code == 0
+                    captured = capsys.readouterr()
+                    assert "LLM MODEL COMPARISON EXPERIMENT" in captured.out

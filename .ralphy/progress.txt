@@ -3861,3 +3861,22 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
     - Custom prompt template
 - All 38 tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-05
+- Implemented Phase 16.5: Add CLI command for experiments
+  - Added `--experiment` argument to CLI with task types: classify, validate, analyze
+  - Added `--models` argument for comma-separated list of model names to compare
+  - Added `--files` argument for test files (directory or comma-separated paths)
+  - Added `--experiment-name` argument for custom experiment naming
+  - Implemented `run_experiment_cli()` function in organizer/cli.py
+  - Validates arguments, checks Ollama availability, runs experiment
+  - Outputs side-by-side comparison table with agreement %, latency stats (P50, P95, P99)
+  - Saves results to `.organizer/experiments/{experiment_name}_{timestamp}.json`
+  - Shows per-file results summary and highlights model disagreements
+- Added 25 tests for experiment CLI in tests/test_cli.py:
+  - TestExperimentArgumentParsing: 8 tests for argument parsing
+  - TestExperimentArgumentValidation: 10 tests for validation logic
+  - TestRunExperimentCli: 6 tests for command execution
+  - TestExperimentMainIntegration: 1 test for main() dispatch
+- All tests pass, linting passes
+- Task completed successfully

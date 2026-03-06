@@ -64,6 +64,12 @@ from organizer.domain_detector import (
 from organizer.learned_rules import (
     DEFAULT_RULES_PATH,
 )
+from organizer.llm_experiment import (
+    Experiment,
+    generate_comparison_table,
+    run_experiment,
+    save_experiment_result,
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -275,6 +281,40 @@ def create_parser() -> argparse.ArgumentParser:
         "rule count, last scan date.",
     )
 
+    # Experiment commands
+    parser.add_argument(
+        "--experiment",
+        nargs="?",
+        const="classify",
+        metavar="TASK_TYPE",
+        help="Run LLM model comparison experiment. Task types: classify, validate, "
+        "analyze. Default: classify. Requires --models and --files.",
+    )
+
+    parser.add_argument(
+        "--models",
+        type=str,
+        metavar="MODEL_LIST",
+        help="Comma-separated list of model names to compare. "
+        "Example: --models llama3.1:8b,qwen2.5:14b",
+    )
+
+    parser.add_argument(
+        "--files",
+        type=str,
+        metavar="PATH",
+        help="Path to test files (directory or comma-separated file paths). "
+        "If a directory, all files in it will be used.",
+    )
+
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        metavar="NAME",
+        help="Optional name for the experiment. If not provided, a name is "
+        "generated from the task type and timestamp.",
+    )
+
     return parser
 
 
@@ -326,18 +366,20 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         or args.learn_confirm
         or args.learn_status
     )
+    has_experiment_action = args.experiment is not None
     if (
         not has_standard_action
         and not has_agent_action
         and not has_mcp_action
         and not has_learn_action
+        and not has_experiment_action
     ):
         errors.append(
             "Must specify at least one action: --scan, --plan, --execute, "
             "--agent-init-config, --agent-run, --agent-once, "
             "--agent-launchd-install, --agent-launchd-uninstall, "
             "--agent-launchd-status, --mcp-server, --learn-structure, "
-            "--learn-confirm, or --learn-status"
+            "--learn-confirm, --learn-status, or --experiment"
         )
 
     # Check execute-specific requirements
@@ -465,6 +507,49 @@ def validate_args(args: argparse.Namespace) -> list[str]:
             "Use only one learn action at a time: "
             "--learn-structure, --learn-confirm, or --learn-status"
         )
+
+    # Validate experiment arguments
+    if args.experiment is not None:
+        # Validate task type
+        valid_task_types = ["classify", "validate", "analyze"]
+        if args.experiment not in valid_task_types:
+            errors.append(
+                f"Invalid experiment task type: {args.experiment}. "
+                f"Valid types: {', '.join(valid_task_types)}"
+            )
+
+        # Check required arguments
+        if not args.models:
+            errors.append("--experiment requires --models (comma-separated model names)")
+        if not args.files:
+            errors.append("--experiment requires --files (path to test files)")
+
+        # Validate --files path if specified
+        if args.files:
+            # Check if it's a comma-separated list or a single path
+            if "," in args.files:
+                # Multiple files specified
+                for file_path in args.files.split(","):
+                    file_path = file_path.strip()
+                    if file_path and not Path(file_path).exists():
+                        errors.append(f"Test file does not exist: {file_path}")
+            else:
+                # Single path (file or directory)
+                files_path = Path(args.files)
+                if not files_path.exists():
+                    errors.append(f"Test files path does not exist: {args.files}")
+
+    # Check --models is not used without --experiment
+    if args.models and args.experiment is None:
+        errors.append("--models can only be used with --experiment")
+
+    # Check --files is not used without --experiment
+    if args.files and args.experiment is None:
+        errors.append("--files can only be used with --experiment")
+
+    # Check --experiment-name is not used without --experiment
+    if args.experiment_name and args.experiment is None:
+        errors.append("--experiment-name can only be used with --experiment")
 
     return errors
 
@@ -1464,6 +1549,177 @@ def run_learn_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_experiment_cli(args: argparse.Namespace) -> int:
+    """Run an LLM model comparison experiment.
+
+    Runs multiple models against a set of test files and generates a
+    comparison report with agreement rates and latency statistics.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
+    print("LLM MODEL COMPARISON EXPERIMENT")
+    print("=" * 40)
+
+    # Parse models list
+    models = [m.strip() for m in args.models.split(",") if m.strip()]
+    if not models:
+        print("Error: No models specified.", file=sys.stderr)
+        return 1
+
+    print(f"Models: {', '.join(models)}")
+
+    # Parse files list
+    test_files: list[str] = []
+    if "," in args.files:
+        # Multiple files specified
+        for file_path in args.files.split(","):
+            file_path = file_path.strip()
+            if file_path and Path(file_path).exists():
+                test_files.append(str(Path(file_path).resolve()))
+    else:
+        # Single path (file or directory)
+        files_path = Path(args.files).resolve()
+        if files_path.is_dir():
+            # Get all files in directory (non-recursive)
+            for entry in files_path.iterdir():
+                if entry.is_file() and not entry.name.startswith("."):
+                    test_files.append(str(entry))
+            test_files.sort()
+        elif files_path.is_file():
+            test_files.append(str(files_path))
+
+    if not test_files:
+        print("Error: No test files found.", file=sys.stderr)
+        return 1
+
+    print(f"Test files: {len(test_files)}")
+    for f in test_files[:5]:
+        print(f"  - {Path(f).name}")
+    if len(test_files) > 5:
+        print(f"  ... and {len(test_files) - 5} more")
+    print()
+
+    # Generate experiment name
+    if args.experiment_name:
+        experiment_name = args.experiment_name
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        experiment_name = f"{args.experiment}_{timestamp}"
+
+    print(f"Experiment: {experiment_name}")
+    print(f"Task type: {args.experiment}")
+    print()
+
+    # Initialize LLM client
+    try:
+        from organizer.llm_client import LLMClient
+
+        llm_client = LLMClient()
+        if not llm_client.is_ollama_available(timeout_s=5):
+            print("Error: Ollama is not available.", file=sys.stderr)
+            print("Start Ollama with: ollama serve", file=sys.stderr)
+            return 1
+        print("LLM backend: Ollama (available)")
+    except Exception as e:
+        print(f"Error initializing LLM client: {e}", file=sys.stderr)
+        return 1
+
+    # Check model availability
+    print()
+    print("Checking model availability...")
+    available_models = llm_client.list_models()
+    for model in models:
+        if model in available_models:
+            print(f"  ✅ {model}")
+        else:
+            print(f"  ⚠️  {model} (not loaded, will attempt to use)")
+
+    # Create experiment
+    experiment = Experiment(
+        name=experiment_name,
+        models_to_compare=models,
+        test_files=test_files,
+        task_type=args.experiment,
+    )
+
+    # Progress callback
+    def progress_callback(current: int, total: int, message: str) -> None:
+        pct = (current / total) * 100 if total > 0 else 0
+        print(f"  [{current}/{total}] {pct:5.1f}% - {message}")
+
+    # Run experiment
+    print()
+    print("Running experiment...")
+    try:
+        result = run_experiment(
+            experiment=experiment,
+            llm_client=llm_client,
+            progress_callback=progress_callback,
+        )
+    except Exception as e:
+        print(f"Error running experiment: {e}", file=sys.stderr)
+        return 1
+
+    # Save results
+    print()
+    print("Saving results...")
+    try:
+        output_path = save_experiment_result(result)
+        print(f"Results saved to: {output_path}")
+    except Exception as e:
+        print(f"Warning: Could not save results: {e}", file=sys.stderr)
+
+    # Generate and display comparison table
+    print()
+    print("=" * 60)
+    print(generate_comparison_table(result))
+    print()
+
+    # Show per-file results summary
+    if result.file_results:
+        print()
+        print("PER-FILE RESULTS")
+        print("-" * 60)
+
+        agree_count = sum(1 for fr in result.file_results if fr.models_agree())
+        disagree_count = len(result.file_results) - agree_count
+
+        print(f"Files where all models agree: {agree_count}/{len(result.file_results)}")
+        print(f"Files where models disagree: {disagree_count}/{len(result.file_results)}")
+
+        # Show disagreements if any
+        if disagree_count > 0:
+            print()
+            print("Disagreements:")
+            for fr in result.file_results:
+                if not fr.models_agree():
+                    filename = Path(fr.file_path).name
+                    print(f"  {filename}:")
+                    for model, model_result in fr.results.items():
+                        if model_result.parsed_result:
+                            bin_val = (
+                                model_result.parsed_result.get("bin")
+                                or model_result.parsed_result.get("category")
+                                or model_result.parsed_result.get("result")
+                                or "unknown"
+                            )
+                            conf = model_result.confidence or 0.0
+                            print(f"    {model}: {bin_val} ({conf:.0%})")
+                        else:
+                            print(f"    {model}: [parse failed]")
+
+    print()
+    print("=" * 60)
+    print("EXPERIMENT COMPLETE")
+    print("=" * 60)
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI.
 
@@ -1490,7 +1746,9 @@ def main(argv: list[str] | None = None) -> int:
         from organizer.mcp_server import run
         run()
         return 0
-    if args.learn_structure is not None:
+    if args.experiment is not None:
+        exit_code = run_experiment_cli(args)
+    elif args.learn_structure is not None:
         exit_code = run_learn_structure(args)
     elif args.learn_confirm:
         exit_code = run_learn_confirm(args)

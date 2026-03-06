@@ -713,7 +713,7 @@ A web-based dashboard that:
   - `Experiment` dataclass: name, models_to_compare (list of model names), test_files (list of paths), expected_results (optional ground truth)
   - `run_experiment(experiment) -> ExperimentResult`: run all models against all test files, collect results
   - `ExperimentResult`: per-file per-model results, agreement matrix, latency comparison, accuracy vs ground truth
-- [ ] Add CLI command for experiments
+- [x] Add CLI command for experiments
   - `python3 -m organizer --experiment classify --models llama3.1:8b,qwen2.5:14b --files /path/to/test/files/`
   - Output: side-by-side comparison table, agreement %, latency stats
   - Save results to `.organizer/experiments/{experiment_name}_{timestamp}.json`
