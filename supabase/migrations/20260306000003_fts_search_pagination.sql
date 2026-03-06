@@ -185,6 +185,6 @@ $$ LANGUAGE plpgsql STABLE;
 -- Grant execute permission (update for new signature)
 GRANT EXECUTE ON FUNCTION natural_language_search_fts(TEXT[], TEXT, TEXT[], INTEGER, INTEGER) TO anon, authenticated;
 
-COMMENT ON FUNCTION natural_language_search_fts IS
+COMMENT ON FUNCTION natural_language_search_fts(TEXT[], TEXT, TEXT[], INTEGER, INTEGER) IS
 'Natural language search on documents with FTS, category and organization filters.
 Supports stemming, relevance ranking, and pagination via offset.';
