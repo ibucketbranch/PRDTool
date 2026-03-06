@@ -62,6 +62,11 @@ export default function Home() {
           description="View learned folder structure, routing rules, and domain detection"
           href="/learned-rules"
         />
+        <DashboardCard
+          title="Model Performance"
+          description="LLM health, model statistics, and routing decisions"
+          href="/model-performance"
+        />
       </div>
     </main>
   );

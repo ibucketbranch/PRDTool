@@ -3807,3 +3807,29 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
     - LLM classification fields, keyword fallback fields, legacy records, multiple records
 - All 40 tests pass (30 Python + 10 TypeScript), linting passes
 - Task completed successfully
+
+## 2026-03-05
+- Implemented Model Performance Dashboard (Phase 16.4)
+  - Created `dashboard/app/model-performance/page.tsx` with:
+    - Health status header showing operational/degraded/offline status
+    - Key metrics grid: classifications today, total LLM calls, avg response time, keyword fallbacks, fallback rate, models available
+    - Tier summary cards for T1 (fast), T2 (smart), T3 (cloud) showing configured models and call statistics
+    - Model statistics table with per-model breakdown (total calls, calls today, avg duration)
+    - Configuration panel showing configured models and escalation threshold
+    - Loaded models panel showing Ollama models with details (size, parameters, quantization, family)
+    - Auto-refresh every 30 seconds
+    - Graceful handling of offline/error states
+  - Added Model Performance card to dashboard home page (`dashboard/app/page.tsx`)
+  - Created `dashboard/__tests__/model-performance-page.test.tsx` with 42 comprehensive tests covering:
+    - Basic rendering and loading states
+    - Health status display (operational, degraded, offline)
+    - Key metrics display
+    - Tier summary display
+    - Model statistics table
+    - Configuration panel
+    - Loaded models panel
+    - Refresh functionality
+    - Error handling
+    - Average response time calculation
+- All 42 tests pass, linting passes
+- Task completed successfully

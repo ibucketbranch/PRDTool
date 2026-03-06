@@ -698,7 +698,7 @@ A web-based dashboard that:
   - Dashboard inbox history shows: filename, destination, confidence, model tier, AND the LLM's explanation
   - Scatter report shows LLM reasoning for each violation
   - Drift report shows LLM's intentional-vs-accidental analysis
-- [ ] Add model performance dashboard
+- [x] Add model performance dashboard
   - Accuracy comparison: LLM vs keyword agreement rate over time
   - Latency percentiles per model tier (p50, p95, p99)
   - Escalation rate: how often T1 needs to escalate to T2
