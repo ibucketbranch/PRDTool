@@ -28,6 +28,7 @@ from organizer.model_router import ModelTier, TaskProfile
 from organizer.taxonomy_utils import Taxonomy, is_bin_locked
 
 if TYPE_CHECKING:
+    from organizer.learned_rules import LearnedRuleStore
     from organizer.llm_client import LLMClient
     from organizer.model_router import ModelRouter
     from organizer.prompt_registry import PromptRegistry
@@ -155,6 +156,8 @@ class ScatterDetector:
         prompt_registry: "PromptRegistry | None" = None,
         escalation_threshold: float = 0.75,
         use_llm: bool = True,
+        learned_rule_store: "LearnedRuleStore | None" = None,
+        use_learned_rules: bool = True,
     ):
         """Initialize the scatter detector.
 
@@ -165,12 +168,16 @@ class ScatterDetector:
             prompt_registry: Registry for loading prompts. If None, uses inline prompts.
             escalation_threshold: Confidence threshold for escalating to higher tier.
             use_llm: Whether to use LLM for validation. If False, uses keyword fallback.
+            learned_rule_store: Optional LearnedRuleStore for checking learned structure.
+            use_learned_rules: Whether to check learned rules first (default True).
         """
         self._llm_client = llm_client
         self._taxonomy = taxonomy or {}
         self._prompt_registry = prompt_registry
         self._escalation_threshold = escalation_threshold
         self._use_llm = use_llm and llm_client is not None
+        self._learned_rule_store = learned_rule_store
+        self._use_learned_rules = use_learned_rules
 
         # Auto-create model router if LLM client is provided
         if model_router is not None:
@@ -465,6 +472,8 @@ Reply with JSON:
     ) -> tuple[bool, str, float]:
         """Validate file placement using keyword rules.
 
+        Checks learned rules first, then falls back to hardcoded keyword rules.
+
         Args:
             file_path: Path to the file.
             current_bin: The bin the file is currently in.
@@ -474,7 +483,19 @@ Reply with JSON:
         """
         filename = Path(file_path).name.lower()
 
-        # Simple keyword mapping for common patterns
+        # Check learned rules first (if available)
+        if self._use_learned_rules and self._learned_rule_store is not None:
+            match_result = self._learned_rule_store.match_with_details(
+                Path(file_path).name, content_signals=None
+            )
+            if match_result is not None and match_result.destination:
+                # Extract expected bin from learned rule destination
+                expected_bin = match_result.destination.split("/")[0]  # Root bin
+                if current_bin.lower() != expected_bin.lower():
+                    return (False, match_result.destination, match_result.confidence)
+                return (True, current_bin, match_result.confidence)
+
+        # Simple keyword mapping for common patterns (fallback)
         keyword_to_bin = {
             "tax": "Finances Bin",
             "invoice": "Finances Bin",
@@ -835,11 +856,14 @@ def detect_scatter(
     use_llm: bool = True,
     max_files: int = 1000,
     file_extensions: set[str] | None = None,
+    learned_rule_store: "LearnedRuleStore | None" = None,
+    use_learned_rules: bool = True,
 ) -> ScatterDetectionResult:
     """Convenience function to detect scatter violations.
 
     Uses LLM-powered validation when llm_client is provided, with
     graceful fallback to keyword-based rules when unavailable.
+    Learned rules are checked first (before keyword rules) when available.
 
     Args:
         base_path: Root directory to scan.
@@ -849,6 +873,8 @@ def detect_scatter(
         use_llm: Whether to use LLM for validation (default True).
         max_files: Maximum number of files to scan.
         file_extensions: Optional extension filter.
+        learned_rule_store: Optional LearnedRuleStore for checking learned structure.
+        use_learned_rules: Whether to check learned rules first (default True).
 
     Returns:
         ScatterDetectionResult with all violations found.
@@ -858,6 +884,8 @@ def detect_scatter(
         model_router=model_router,
         taxonomy=taxonomy,
         use_llm=use_llm,
+        learned_rule_store=learned_rule_store,
+        use_learned_rules=use_learned_rules,
     )
     return detector.detect_scatter(
         base_path=base_path,

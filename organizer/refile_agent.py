@@ -31,6 +31,7 @@ from organizer.model_router import ModelTier, TaskProfile
 from organizer.routing_history import RoutingHistory
 
 if TYPE_CHECKING:
+    from organizer.learned_rules import LearnedRuleStore
     from organizer.llm_client import LLMClient
     from organizer.model_router import ModelRouter
     from organizer.prompt_registry import PromptRegistry
@@ -244,6 +245,8 @@ class ReFileAgent:
         escalation_threshold: float = 0.75,
         use_llm: bool = True,
         lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+        learned_rule_store: "LearnedRuleStore | None" = None,
+        use_learned_rules: bool = True,
     ):
         """Initialize the ReFile agent.
 
@@ -254,12 +257,16 @@ class ReFileAgent:
             escalation_threshold: Confidence threshold for escalating to higher tier.
             use_llm: Whether to use LLM for assessment.
             lookback_days: How many days back to check routing history.
+            learned_rule_store: Optional LearnedRuleStore for determining correct placement.
+            use_learned_rules: Whether to use learned rules as source of truth (default True).
         """
         self._llm_client = llm_client
         self._prompt_registry = prompt_registry
         self._escalation_threshold = escalation_threshold
         self._use_llm = use_llm and llm_client is not None
         self._lookback_days = lookback_days
+        self._learned_rule_store = learned_rule_store
+        self._use_learned_rules = use_learned_rules
 
         # Auto-create model router if LLM client is provided
         if model_router is not None:
@@ -668,6 +675,9 @@ Reply with JSON:
     ) -> DestinationSuggestion:
         """Suggest destination using keyword-based heuristics.
 
+        Checks learned rules first as source of truth, then falls back
+        to hardcoded keyword mappings.
+
         Args:
             filename: Name of the file.
             original_path: Original path that no longer exists.
@@ -675,6 +685,27 @@ Reply with JSON:
         Returns:
             DestinationSuggestion based on heuristics.
         """
+        # Check learned rules first (as source of truth)
+        if self._use_learned_rules and self._learned_rule_store is not None:
+            match_result = self._learned_rule_store.match_with_details(
+                filename, content_signals=None
+            )
+            if match_result is not None and match_result.destination:
+                # Extract year from filename for subpath
+                year_match = re.search(r"(19|20)\d{2}", filename)
+                year = year_match.group(0) if year_match else ""
+
+                suggested = match_result.destination
+                if year and not any(y in suggested for y in ["2019", "2020", "2021", "2022", "2023", "2024", "2025"]):
+                    suggested = f"{match_result.destination}/{year}"
+
+                return DestinationSuggestion(
+                    suggested_path=suggested,
+                    confidence=match_result.confidence,
+                    reason=f"Learned rule: {match_result.reasoning}" if match_result.reasoning else f"Learned rule matched: {match_result.rule_pattern}",
+                    model_used="",
+                )
+
         filename_lower = filename.lower()
         path_lower = original_path.lower()
         combined = f"{filename_lower} {path_lower}"
@@ -683,7 +714,7 @@ Reply with JSON:
         year_match = re.search(r"(19|20)\d{2}", filename)
         year = year_match.group(0) if year_match else ""
 
-        # Try to find a matching bin
+        # Try to find a matching bin (fallback to hardcoded rules)
         bin_keywords = {
             "tax": "Finances Bin/Taxes",
             "invoice": "Finances Bin/Invoices",
@@ -967,6 +998,8 @@ def detect_drift(
     model_router: "ModelRouter | None" = None,
     use_llm: bool = True,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    learned_rule_store: "LearnedRuleStore | None" = None,
+    use_learned_rules: bool = True,
 ) -> DriftDetectionResult:
     """Convenience function to detect drift in routing history.
 
@@ -977,6 +1010,8 @@ def detect_drift(
         model_router: Optional model router for tier selection.
         use_llm: Whether to use LLM for assessment.
         lookback_days: How many days back to check.
+        learned_rule_store: Optional LearnedRuleStore for determining correct placement.
+        use_learned_rules: Whether to use learned rules as source of truth (default True).
 
     Returns:
         DriftDetectionResult with all detected drift records.
@@ -986,6 +1021,8 @@ def detect_drift(
         model_router=model_router,
         use_llm=use_llm,
         lookback_days=lookback_days,
+        learned_rule_store=learned_rule_store,
+        use_learned_rules=use_learned_rules,
     )
     return agent.detect_drift(
         routing_history=routing_history,

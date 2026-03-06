@@ -3454,3 +3454,28 @@ Task completed successfully.
   - Edge cases and error handling
 - All 52 tests pass, linting passes
 - Task completed successfully
+
+
+---
+**Date:** 2026-03-05
+**Task:** Phase 15 - Wire learned rules into routing pipeline
+**Status:** COMPLETED
+
+**Changes Made:**
+1. **inbox_processor.py**: Added `_get_learned_rule_store()` method and integrated learned rules check in `_classify_with_keywords()` - learned rules are now checked BEFORE hardcoded `ROUTING_RULES`
+2. **scatter_detector.py**: Added `learned_rule_store` and `use_learned_rules` parameters to constructor; updated `_validate_with_keywords()` to check learned rules first
+3. **refile_agent.py**: Added learned rules support for destination suggestions in `_suggest_destination_with_keywords()` - learned rules are now the source of truth for "correct" placement
+4. **consolidation_planner.py**: Added `_get_learned_structure()` and `_are_folders_separate_in_learned_structure()` methods; updated `group_similar_folders()` to respect learned hierarchy and never merge folders the snapshot says are separate
+
+**Tests Added:**
+- TestLearnedRulesInboxProcessorIntegration
+- TestLearnedRulesScatterDetectorIntegration
+- TestLearnedRulesReFileAgentIntegration
+- TestLearnedRulesConsolidationPlannerIntegration
+
+**Test Results:** 61 tests passed
+**Linting:** All checks passed
+
+**Merge Priority Now:** learned rules → user overrides → built-in taxonomy → hardcoded ROUTING_RULES
+
+---

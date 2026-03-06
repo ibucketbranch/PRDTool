@@ -579,7 +579,7 @@ A web-based dashboard that:
   - `LearnedRuleStore` class: load/save from `.organizer/agent/learned_routing_rules.json`
   - `match(filename, content_signals) -> tuple[destination, confidence]`
   - Merge priority: learned rules → user overrides → built-in taxonomy → hardcoded `ROUTING_RULES`
-- [ ] Wire learned rules into routing pipeline
+- [x] Wire learned rules into routing pipeline
   - `inbox_processor.py`: check `LearnedRuleStore.match()` before `ROUTING_RULES`
   - `scatter_detector.py` (Phase 12): measure violations against learned structure first
   - `refile_agent.py` (Phase 14): learned rules as source of truth for "correct" placement

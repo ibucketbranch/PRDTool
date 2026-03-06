@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from organizer.llm_client import LLMClient
+    from organizer.learned_rules import LearnedRuleStore
     from organizer.model_router import ModelRouter
     from organizer.prompt_registry import PromptRegistry
 
@@ -210,6 +211,8 @@ class InboxProcessor:
         comparison_logs_dir: str = "",
         routing_history_path: str = "",
         learned_overrides_path: str = "",
+        learned_rules_path: str = "",
+        use_learned_rules: bool = True,
     ):
         """Initialize the InboxProcessor.
 
@@ -228,6 +231,8 @@ class InboxProcessor:
                                  Defaults to .organizer/agent/logs if not specified.
             routing_history_path: Path to routing_history.json. Defaults to base_path/.organizer/agent/.
             learned_overrides_path: Path to learned_overrides.json. Defaults to base_path/.organizer/agent/.
+            learned_rules_path: Path to learned_routing_rules.json. Defaults to base_path/.organizer/agent/.
+            use_learned_rules: Whether to check learned rules before keyword rules (default True).
         """
         self.base_path = Path(base_path)
         self.inbox_dir = self.base_path / inbox_name
@@ -238,8 +243,13 @@ class InboxProcessor:
         self._learned_overrides_path = (
             Path(learned_overrides_path) if learned_overrides_path else agent_dir / "learned_overrides.json"
         )
+        self._learned_rules_path = (
+            Path(learned_rules_path) if learned_rules_path else agent_dir / "learned_routing_rules.json"
+        )
         self._routing_history = None
         self._override_registry = None
+        self._learned_rule_store: "LearnedRuleStore | None" = None
+        self._use_learned_rules = use_learned_rules
         self._extra_rules: list[tuple[list[str], str]] = []
         self._llm_client = llm_client
         self._model_router = model_router
@@ -280,6 +290,29 @@ class InboxProcessor:
             from organizer.learned_overrides import OverrideRegistry
             self._override_registry = OverrideRegistry(self._learned_overrides_path)
         return self._override_registry
+
+    def _get_learned_rule_store(self) -> "LearnedRuleStore | None":
+        """Lazy-load learned rules store.
+
+        Returns:
+            LearnedRuleStore instance if learned rules are enabled and available,
+            None otherwise.
+        """
+        if not self._use_learned_rules:
+            return None
+        if self._learned_rule_store is None:
+            try:
+                from organizer.learned_rules import LearnedRuleStore
+                self._learned_rule_store = LearnedRuleStore(
+                    rules_path=self._learned_rules_path,
+                    taxonomy_path=None,  # Taxonomy handled separately
+                    override_registry=None,  # Overrides handled separately via _get_override_registry
+                    auto_load=True,
+                )
+            except (ImportError, OSError):
+                # Learned rules not available
+                self._learned_rule_store = None
+        return self._learned_rule_store
 
     def _load_registry_rules(self, registry_path: str) -> None:
         """Build supplemental keyword rules from the canonical registry."""
@@ -403,9 +436,12 @@ class InboxProcessor:
     def _classify_with_keywords(self, filepath: Path, date_signals: dict[str, Any], pdf_text: str) -> InboxRouting:
         """Classify a file using keyword-based rules (fallback method).
 
-        Two-pass strategy: filename match always wins over content match.
-        Pass 1: match against filename only (high confidence).
-        Pass 2: match against PDF content (lower confidence).
+        Multi-pass strategy with priority ordering:
+        Pass 0: Check learned rules (highest priority after LLM and overrides)
+        Pass 1: Match against filename only with keyword rules (high confidence)
+        Pass 2: Match against PDF content with keyword rules (lower confidence)
+        Pass 3: Category mapper fallback
+
         This prevents content bleed (e.g. a resume mentioning "veteran"
         being routed to VA instead of Resumes).
 
@@ -419,6 +455,31 @@ class InboxProcessor:
         """
         stem_lower = filepath.stem.lower()
         filename_text = f" {stem_lower} "
+
+        # Pass 0: Check learned rules first (before hardcoded ROUTING_RULES)
+        learned_store = self._get_learned_rule_store()
+        if learned_store is not None:
+            # Build content signals for learned rules matching
+            content_signals: dict[str, Any] = {}
+            if pdf_text:
+                # Extract keywords from content for matching
+                content_signals["keywords"] = pdf_text.lower().split()[:100]  # First 100 words
+            if date_signals.get("filename_years"):
+                content_signals["years"] = date_signals["filename_years"]
+
+            match_result = learned_store.match_with_details(filepath.name, content_signals)
+            if match_result is not None and match_result.destination:
+                # Learned rule matched - high confidence
+                return InboxRouting(
+                    filename=filepath.name,
+                    source_path=str(filepath),
+                    destination_bin=match_result.destination,
+                    confidence=match_result.confidence,
+                    matched_keywords=[f"learned:{match_result.rule_pattern}"],
+                    date_signals=date_signals,
+                    reason=match_result.reasoning,
+                    used_keyword_fallback=True,  # Still considered fallback (not LLM)
+                )
 
         all_rules = list(ROUTING_RULES) + self._extra_rules
 

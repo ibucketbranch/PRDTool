@@ -21,7 +21,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from organizer.canonical_registry import CanonicalRegistry
 from organizer.category_mapper import (
@@ -38,6 +38,9 @@ from organizer.content_analyzer import (
 )
 from organizer.database_updater import get_database_connection
 from organizer.fuzzy_matcher import are_similar_folders
+
+if TYPE_CHECKING:
+    from organizer.structure_analyzer import StructureSnapshot
 
 
 @dataclass
@@ -336,6 +339,8 @@ class ConsolidationPlanner:
         content_aware: bool = False,
         content_similarity_threshold: float = 0.6,
         analyze_missing: bool = False,
+        learned_structure_path: str = "",
+        respect_learned_hierarchy: bool = True,
     ):
         """Initialize the planner.
 
@@ -350,6 +355,11 @@ class ConsolidationPlanner:
             analyze_missing: If True and content_aware is enabled, analyze files that
                 are not in the database using the DocumentProcessor. This allows for
                 content-aware decisions even for folders not yet fully processed.
+            learned_structure_path: Path to learned_structure.json. If provided,
+                respects learned hierarchy when making consolidation decisions.
+            respect_learned_hierarchy: If True (default), never merge folders that
+                the learned structure snapshot says are separate. Prevents reshuffling
+                user's intentional organization.
         """
         self.base_path = base_path or os.getcwd()
         self.threshold = threshold
@@ -358,6 +368,13 @@ class ConsolidationPlanner:
         self.content_similarity_threshold = content_similarity_threshold
         self.analyze_missing = analyze_missing
         self._db_conn: Optional[sqlite3.Connection] = None
+        self._learned_structure_path = (
+            learned_structure_path
+            if learned_structure_path
+            else os.path.join(base_path or os.getcwd(), ".organizer", "agent", "learned_structure.json")
+        )
+        self._respect_learned_hierarchy = respect_learned_hierarchy
+        self._learned_structure: Optional["StructureSnapshot"] = None
 
     def _get_db_connection(self) -> Optional[sqlite3.Connection]:
         """Get database connection for content-aware analysis."""
@@ -375,6 +392,73 @@ class ConsolidationPlanner:
         if self._db_conn is not None:
             self._db_conn.close()
             self._db_conn = None
+
+    def _get_learned_structure(self) -> Optional["StructureSnapshot"]:
+        """Load learned structure snapshot if available.
+
+        Returns:
+            StructureSnapshot if file exists and is valid, None otherwise.
+        """
+        if self._learned_structure is not None:
+            return self._learned_structure
+
+        if not self._respect_learned_hierarchy:
+            return None
+
+        try:
+            from organizer.structure_analyzer import StructureSnapshot
+            self._learned_structure = StructureSnapshot.load(self._learned_structure_path)
+            return self._learned_structure
+        except (FileNotFoundError, json.JSONDecodeError, ImportError):
+            return None
+
+    def _are_folders_separate_in_learned_structure(
+        self, folder_path1: str, folder_path2: str
+    ) -> bool:
+        """Check if two folders are intentionally separate in the learned structure.
+
+        The learned structure represents the user's existing organizational strategy.
+        If two folders exist at the same depth level with different parents, or
+        are both recorded separately in the snapshot, they should NOT be merged.
+
+        Args:
+            folder_path1: Path to first folder.
+            folder_path2: Path to second folder.
+
+        Returns:
+            True if folders should be kept separate (don't consolidate).
+        """
+        learned = self._get_learned_structure()
+        if learned is None:
+            return False  # No learned structure, allow consolidation
+
+        # Check if both folders exist in the learned structure
+        folder_paths_in_structure = {f.path for f in learned.folders}
+        folder_names_in_structure = {f.name: f for f in learned.folders}
+
+        path1_abs = os.path.abspath(folder_path1)
+        path2_abs = os.path.abspath(folder_path2)
+        name1 = os.path.basename(folder_path1)
+        name2 = os.path.basename(folder_path2)
+
+        # If both exact paths are in the learned structure, check their depths/parents
+        if path1_abs in folder_paths_in_structure and path2_abs in folder_paths_in_structure:
+            # Both folders were explicitly captured in the learned structure
+            # They exist separately, so respect that separation
+            return True
+
+        # Check by folder name if paths don't match exactly
+        # (paths may have changed since structure was learned)
+        node1 = folder_names_in_structure.get(name1)
+        node2 = folder_names_in_structure.get(name2)
+
+        if node1 is not None and node2 is not None:
+            # Both folder names exist in learned structure
+            # If they're at the same depth but different paths, they're intentionally separate
+            if node1.depth == node2.depth and node1.path != node2.path:
+                return True
+
+        return False
 
     def scan_folders(
         self, path: Optional[str] = None, max_depth: int = 3
@@ -472,6 +556,9 @@ class ConsolidationPlanner:
     def group_similar_folders(self, folders: list[FolderInfo]) -> list[FolderGroup]:
         """Group similar folders together based on fuzzy matching.
 
+        Respects learned hierarchy by not grouping folders that the learned
+        structure snapshot indicates should be kept separate.
+
         Args:
             folders: List of FolderInfo objects to analyze.
 
@@ -496,6 +583,13 @@ class ConsolidationPlanner:
                 if are_similar_folders(
                     folder.name, other.name, threshold=self.threshold
                 ):
+                    # Check if learned structure says these should be separate
+                    if self._are_folders_separate_in_learned_structure(
+                        folder.path, other.path
+                    ):
+                        # Learned structure says keep separate - skip this pair
+                        continue
+
                     similar.append(other)
                     assigned.add(other.path)
 
@@ -1110,6 +1204,8 @@ def scan_folder_structure(
     content_aware: bool = False,
     content_similarity_threshold: float = 0.6,
     analyze_missing: bool = False,
+    learned_structure_path: str = "",
+    respect_learned_hierarchy: bool = True,
 ) -> ConsolidationPlan:
     """Convenience function to scan and create a consolidation plan.
 
@@ -1123,6 +1219,10 @@ def scan_folder_structure(
             content-based consolidation decisions. Default is 0.6 (60%).
         analyze_missing: If True and content_aware is enabled, analyze files that
             are not in the database using the DocumentProcessor.
+        learned_structure_path: Path to learned_structure.json. If provided,
+            respects learned hierarchy when making consolidation decisions.
+        respect_learned_hierarchy: If True (default), never merge folders that
+            the learned structure snapshot says are separate.
 
     Returns:
         A ConsolidationPlan with all identified folder groups.
@@ -1134,6 +1234,8 @@ def scan_folder_structure(
         content_aware=content_aware,
         content_similarity_threshold=content_similarity_threshold,
         analyze_missing=analyze_missing,
+        learned_structure_path=learned_structure_path,
+        respect_learned_hierarchy=respect_learned_hierarchy,
     )
     return planner.create_plan(max_depth=max_depth)
 

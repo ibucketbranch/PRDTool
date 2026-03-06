@@ -701,3 +701,258 @@ class TestLearnedRulesMergePriority:
         dest, conf = store.match("va_claim_2024.pdf")
         assert dest == "VA/Claims"
         assert conf == 0.85
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Integration Tests: Learned Rules in Routing Pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLearnedRulesInboxProcessorIntegration:
+    """Tests for learned rules integration with InboxProcessor."""
+
+    def test_inbox_processor_loads_learned_rules(self, temp_rules_path: Path) -> None:
+        """Test that InboxProcessor can load learned rules store."""
+        from organizer.inbox_processor import InboxProcessor
+
+        # Create a minimal inbox processor with learned rules path
+        processor = InboxProcessor(
+            base_path=str(temp_rules_path.parent.parent.parent),  # Root above .organizer
+            learned_rules_path=str(temp_rules_path),
+            use_learned_rules=True,
+            use_llm=False,  # Don't need LLM for this test
+        )
+
+        # Verify the processor has the learned rules path set
+        assert processor._learned_rules_path == temp_rules_path
+        assert processor._use_learned_rules is True
+
+    def test_inbox_processor_disables_learned_rules(self, temp_rules_path: Path) -> None:
+        """Test that InboxProcessor can disable learned rules."""
+        from organizer.inbox_processor import InboxProcessor
+
+        processor = InboxProcessor(
+            base_path=str(temp_rules_path.parent.parent.parent),
+            learned_rules_path=str(temp_rules_path),
+            use_learned_rules=False,
+            use_llm=False,
+        )
+
+        assert processor._use_learned_rules is False
+        # _get_learned_rule_store should return None when disabled
+        assert processor._get_learned_rule_store() is None
+
+
+class TestLearnedRulesScatterDetectorIntegration:
+    """Tests for learned rules integration with ScatterDetector."""
+
+    def test_scatter_detector_accepts_learned_rule_store(self, rules_file: Path) -> None:
+        """Test that ScatterDetector can be initialized with learned rule store."""
+        from organizer.learned_rules import LearnedRuleStore
+        from organizer.scatter_detector import ScatterDetector
+
+        store = LearnedRuleStore(rules_path=rules_file, taxonomy_path=None)
+
+        detector = ScatterDetector(
+            learned_rule_store=store,
+            use_learned_rules=True,
+            use_llm=False,
+        )
+
+        assert detector._learned_rule_store is store
+        assert detector._use_learned_rules is True
+
+    def test_scatter_detector_disable_learned_rules(self, rules_file: Path) -> None:
+        """Test that ScatterDetector can disable learned rules."""
+        from organizer.learned_rules import LearnedRuleStore
+        from organizer.scatter_detector import ScatterDetector
+
+        store = LearnedRuleStore(rules_path=rules_file, taxonomy_path=None)
+
+        detector = ScatterDetector(
+            learned_rule_store=store,
+            use_learned_rules=False,
+            use_llm=False,
+        )
+
+        assert detector._use_learned_rules is False
+
+
+class TestLearnedRulesReFileAgentIntegration:
+    """Tests for learned rules integration with ReFileAgent."""
+
+    def test_refile_agent_accepts_learned_rule_store(self, rules_file: Path) -> None:
+        """Test that ReFileAgent can be initialized with learned rule store."""
+        from organizer.learned_rules import LearnedRuleStore
+        from organizer.refile_agent import ReFileAgent
+
+        store = LearnedRuleStore(rules_path=rules_file, taxonomy_path=None)
+
+        agent = ReFileAgent(
+            learned_rule_store=store,
+            use_learned_rules=True,
+            use_llm=False,
+        )
+
+        assert agent._learned_rule_store is store
+        assert agent._use_learned_rules is True
+
+    def test_refile_agent_suggest_destination_uses_learned_rules(
+        self, rules_file: Path
+    ) -> None:
+        """Test that ReFileAgent uses learned rules for destination suggestion."""
+        from organizer.learned_rules import LearnedRuleStore
+        from organizer.refile_agent import ReFileAgent
+
+        store = LearnedRuleStore(rules_path=rules_file, taxonomy_path=None)
+
+        agent = ReFileAgent(
+            learned_rule_store=store,
+            use_learned_rules=True,
+            use_llm=False,
+        )
+
+        # Suggest destination for a file that matches learned rule
+        suggestion = agent._suggest_destination_with_keywords(
+            "invoice_2024.pdf", "/old/path/invoice_2024.pdf"
+        )
+
+        # Should use learned rule destination
+        assert suggestion.suggested_path.startswith("/path/to/invoices")
+        assert suggestion.confidence == 0.9
+        assert "Learned rule" in suggestion.reason
+
+
+class TestLearnedRulesConsolidationPlannerIntegration:
+    """Tests for learned rules integration with ConsolidationPlanner."""
+
+    def test_consolidation_planner_respects_learned_hierarchy(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that ConsolidationPlanner respects learned structure."""
+        from organizer.consolidation_planner import ConsolidationPlanner
+        from organizer.structure_analyzer import FolderNode, StructureSnapshot
+
+        # Create a learned structure file
+        agent_dir = tmp_path / ".organizer" / "agent"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        structure_path = agent_dir / "learned_structure.json"
+
+        # Create snapshot with two folders that should be kept separate
+        snapshot = StructureSnapshot(
+            root_path=str(tmp_path),
+            max_depth=4,
+            folders=[
+                FolderNode(
+                    path=str(tmp_path / "Resumes_Personal"),
+                    name="Resumes_Personal",
+                    depth=1,
+                ),
+                FolderNode(
+                    path=str(tmp_path / "Resumes_Work"),
+                    name="Resumes_Work",
+                    depth=1,
+                ),
+            ],
+        )
+        snapshot.save(structure_path)
+
+        # Create actual folders
+        (tmp_path / "Resumes_Personal").mkdir()
+        (tmp_path / "Resumes_Work").mkdir()
+
+        planner = ConsolidationPlanner(
+            base_path=str(tmp_path),
+            threshold=0.7,  # Low threshold to trigger grouping by name
+            learned_structure_path=str(structure_path),
+            respect_learned_hierarchy=True,
+        )
+
+        # These folders have similar names but exist separately in learned structure
+        # Planner should keep them separate
+        separate = planner._are_folders_separate_in_learned_structure(
+            str(tmp_path / "Resumes_Personal"),
+            str(tmp_path / "Resumes_Work"),
+        )
+        assert separate is True
+
+    def test_consolidation_planner_allows_merge_when_not_in_learned(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that ConsolidationPlanner allows merge for unlisted folders."""
+        from organizer.consolidation_planner import ConsolidationPlanner
+        from organizer.structure_analyzer import FolderNode, StructureSnapshot
+
+        # Create a learned structure file with only one folder
+        agent_dir = tmp_path / ".organizer" / "agent"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        structure_path = agent_dir / "learned_structure.json"
+
+        snapshot = StructureSnapshot(
+            root_path=str(tmp_path),
+            max_depth=4,
+            folders=[
+                FolderNode(
+                    path=str(tmp_path / "SomeOtherFolder"),
+                    name="SomeOtherFolder",
+                    depth=1,
+                ),
+            ],
+        )
+        snapshot.save(structure_path)
+
+        planner = ConsolidationPlanner(
+            base_path=str(tmp_path),
+            learned_structure_path=str(structure_path),
+            respect_learned_hierarchy=True,
+        )
+
+        # Folders not in learned structure should be allowed to merge
+        separate = planner._are_folders_separate_in_learned_structure(
+            str(tmp_path / "NewFolder1"),
+            str(tmp_path / "NewFolder2"),
+        )
+        assert separate is False
+
+    def test_consolidation_planner_ignores_learned_when_disabled(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that ConsolidationPlanner ignores learned structure when disabled."""
+        from organizer.consolidation_planner import ConsolidationPlanner
+        from organizer.structure_analyzer import FolderNode, StructureSnapshot
+
+        # Create a learned structure file
+        agent_dir = tmp_path / ".organizer" / "agent"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        structure_path = agent_dir / "learned_structure.json"
+
+        snapshot = StructureSnapshot(
+            root_path=str(tmp_path),
+            max_depth=4,
+            folders=[
+                FolderNode(
+                    path=str(tmp_path / "Folder1"),
+                    name="Folder1",
+                    depth=1,
+                ),
+                FolderNode(
+                    path=str(tmp_path / "Folder2"),
+                    name="Folder2",
+                    depth=1,
+                ),
+            ],
+        )
+        snapshot.save(structure_path)
+
+        planner = ConsolidationPlanner(
+            base_path=str(tmp_path),
+            learned_structure_path=str(structure_path),
+            respect_learned_hierarchy=False,  # Disabled
+        )
+
+        # With respect_learned_hierarchy=False, should allow merge
+        separate = planner._are_folders_separate_in_learned_structure(
+            str(tmp_path / "Folder1"),
+            str(tmp_path / "Folder2"),
+        )
+        assert separate is False
