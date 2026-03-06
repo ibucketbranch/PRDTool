@@ -48,6 +48,22 @@ from organizer.launchd_agent import (
     launchd_status,
     uninstall_launchd_service,
 )
+from organizer.structure_analyzer import (
+    DEFAULT_STRUCTURE_OUTPUT_PATH,
+    StructureSnapshot,
+    analyze_structure,
+)
+from organizer.rule_generator import (
+    DEFAULT_RULES_OUTPUT_PATH,
+    LearnedRulesSnapshot,
+    generate_rules,
+)
+from organizer.domain_detector import (
+    detect_domain,
+)
+from organizer.learned_rules import (
+    DEFAULT_RULES_PATH,
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -234,6 +250,31 @@ def create_parser() -> argparse.ArgumentParser:
         "the task is marked as 'ready'. Only used with --dry-run.",
     )
 
+    # Learning-Agent onboarding commands
+    parser.add_argument(
+        "--learn-structure",
+        nargs="?",
+        const=".",
+        metavar="PATH",
+        help="Analyze folder structure and generate routing rules. "
+        "Outputs summary with folder count, rule count, detected domain. "
+        "Optional path (default: current directory or base_path from agent config).",
+    )
+
+    parser.add_argument(
+        "--learn-confirm",
+        action="store_true",
+        help="Activate learned rules after user reviews them. "
+        "Learned rules will take priority over built-in taxonomy.",
+    )
+
+    parser.add_argument(
+        "--learn-status",
+        action="store_true",
+        help="Show current learned rules status: active/inactive, "
+        "rule count, last scan date.",
+    )
+
     return parser
 
 
@@ -280,12 +321,23 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         or args.agent_launchd_status
     )
     has_mcp_action = args.mcp_server
-    if not has_standard_action and not has_agent_action and not has_mcp_action:
+    has_learn_action = (
+        args.learn_structure is not None
+        or args.learn_confirm
+        or args.learn_status
+    )
+    if (
+        not has_standard_action
+        and not has_agent_action
+        and not has_mcp_action
+        and not has_learn_action
+    ):
         errors.append(
             "Must specify at least one action: --scan, --plan, --execute, "
             "--agent-init-config, --agent-run, --agent-once, "
             "--agent-launchd-install, --agent-launchd-uninstall, "
-            "--agent-launchd-status, or --mcp-server"
+            "--agent-launchd-status, --mcp-server, --learn-structure, "
+            "--learn-confirm, or --learn-status"
         )
 
     # Check execute-specific requirements
@@ -389,6 +441,29 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         errors.append(
             "--min-content-similarity can only be used with --content-aware "
             "(not --no-content-aware)"
+        )
+
+    # Validate --learn-structure path if specified
+    if args.learn_structure is not None:
+        learn_path = Path(args.learn_structure).resolve()
+        if not learn_path.exists():
+            errors.append(f"Learn structure path does not exist: {args.learn_structure}")
+        elif not learn_path.is_dir():
+            errors.append(
+                f"Learn structure path is not a directory: {args.learn_structure}"
+            )
+
+    # Check that learn commands are not mixed with other commands
+    learn_actions = [
+        args.learn_structure is not None,
+        args.learn_confirm,
+        args.learn_status,
+    ]
+    learn_action_count = sum(1 for action in learn_actions if action)
+    if learn_action_count > 1:
+        errors.append(
+            "Use only one learn action at a time: "
+            "--learn-structure, --learn-confirm, or --learn-status"
         )
 
     return errors
@@ -1081,6 +1156,314 @@ def _execute_with_progress(
     return result
 
 
+def run_learn_structure(args: argparse.Namespace) -> int:
+    """Run the learn-structure command to analyze folder structure.
+
+    Triggers a full scan of the specified path, generates routing rules,
+    and outputs a summary with folder count, rule count, and detected domain.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
+    # Determine the path to analyze
+    scan_path = Path(args.learn_structure).resolve()
+
+    print("LEARNING STRUCTURE ANALYSIS")
+    print("=" * 40)
+    print(f"Scanning: {scan_path}")
+    print(f"Max depth: {args.max_depth}")
+    print()
+
+    # Try to initialize LLM client for better analysis (optional)
+    llm_client = None
+    model_router = None
+    try:
+        from organizer.llm_client import LLMClient
+        from organizer.model_router import ModelRouter
+
+        llm_client = LLMClient()
+        if llm_client.is_ollama_available(timeout_s=3):
+            model_router = ModelRouter()
+            print("LLM available: Using AI-powered analysis")
+        else:
+            llm_client = None
+            print("LLM unavailable: Using keyword-based analysis")
+    except Exception:
+        print("LLM unavailable: Using keyword-based analysis")
+    print()
+
+    # Step 1: Analyze structure
+    print("Step 1: Analyzing folder structure...")
+    try:
+        snapshot = analyze_structure(
+            root_path=scan_path,
+            max_depth=args.max_depth,
+            llm_client=llm_client,
+            model_router=model_router,
+            use_llm=llm_client is not None,
+        )
+        snapshot.save()
+        print(f"  Folders analyzed: {snapshot.total_folders}")
+        print(f"  Files found: {snapshot.total_files}")
+        print(f"  Structure saved to: {DEFAULT_STRUCTURE_OUTPUT_PATH}")
+    except Exception as e:
+        print(f"Error analyzing structure: {e}", file=sys.stderr)
+        return 1
+
+    # Step 2: Detect domain
+    print()
+    print("Step 2: Detecting domain...")
+    try:
+        domain_context = detect_domain(
+            snapshot=snapshot,
+            llm_client=llm_client,
+            model_router=model_router,
+        )
+        print(f"  Detected domain: {domain_context.detected_domain}")
+        print(f"  Confidence: {domain_context.confidence:.0%}")
+        if domain_context.evidence:
+            print("  Evidence:")
+            for evidence in domain_context.evidence[:5]:
+                print(f"    - {evidence}")
+    except Exception as e:
+        print(f"  Domain detection failed: {e}")
+        domain_context = None
+
+    # Step 3: Generate routing rules
+    print()
+    print("Step 3: Generating routing rules...")
+    try:
+        rules_snapshot = generate_rules(
+            snapshot=snapshot,
+            llm_client=llm_client,
+            model_router=model_router,
+        )
+        rules_snapshot.save()
+        enabled_rules = [r for r in rules_snapshot.rules if r.enabled]
+        print(f"  Rules generated: {len(rules_snapshot.rules)}")
+        print(f"  Rules enabled: {len(enabled_rules)}")
+        print(f"  Rules saved to: {DEFAULT_RULES_OUTPUT_PATH}")
+    except Exception as e:
+        print(f"Error generating rules: {e}", file=sys.stderr)
+        return 1
+
+    # Step 4: Show summary
+    print()
+    print("=" * 40)
+    print("SUMMARY")
+    print("=" * 40)
+    print(f"Folders analyzed: {snapshot.total_folders}")
+    print(f"Files found: {snapshot.total_files}")
+    print(f"Rules generated: {len(rules_snapshot.rules)}")
+    if domain_context:
+        print(f"Detected domain: {domain_context.detected_domain} "
+              f"({domain_context.confidence:.0%} confidence)")
+
+    # Show strategy description if available
+    if snapshot.strategy_description:
+        print()
+        print("Organizational strategy:")
+        print(f"  {snapshot.strategy_description}")
+
+    # Show sample rules
+    if rules_snapshot.rules:
+        print()
+        print("Sample rules (first 5):")
+        for rule in rules_snapshot.rules[:5]:
+            status = "enabled" if rule.enabled else "disabled"
+            print(f"  - {rule.pattern} → {rule.destination} ({status})")
+
+    print()
+    print("Status: INACTIVE")
+    print("Run `python3 -m organizer --learn-confirm` to activate these rules.")
+
+    return 0
+
+
+def run_learn_confirm(args: argparse.Namespace) -> int:
+    """Run the learn-confirm command to activate learned rules.
+
+    Activates learned rules after user reviews them. Learned rules
+    will take priority over built-in taxonomy.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
+    # Check if rules file exists
+    rules_path = Path(DEFAULT_RULES_OUTPUT_PATH)
+    if not rules_path.exists():
+        print("Error: No learned rules found.", file=sys.stderr)
+        print("Run `python3 -m organizer --learn-structure [path]` first.",
+              file=sys.stderr)
+        return 1
+
+    # Load rules
+    try:
+        rules_snapshot = LearnedRulesSnapshot.load(rules_path)
+    except Exception as e:
+        print(f"Error loading rules: {e}", file=sys.stderr)
+        return 1
+
+    if not rules_snapshot.rules:
+        print("Error: No rules to activate.", file=sys.stderr)
+        return 1
+
+    # Check if already active (look for the active marker file)
+    active_marker = Path(".organizer/agent/learned_rules_active.json")
+    if active_marker.exists():
+        print("Learned rules are already active.")
+        try:
+            marker_data = json.loads(active_marker.read_text())
+            print(f"Activated: {marker_data.get('activated_at', 'unknown')}")
+            print(f"Rules: {marker_data.get('rule_count', 0)}")
+        except Exception:
+            pass
+        return 0
+
+    # Enable all rules and copy to active location
+    enabled_count = 0
+    for rule in rules_snapshot.rules:
+        if rule.enabled:
+            enabled_count += 1
+
+    # Create active marker with activation info
+    active_marker.parent.mkdir(parents=True, exist_ok=True)
+    marker_data = {
+        "active": True,
+        "activated_at": datetime.now().isoformat(),
+        "rule_count": len(rules_snapshot.rules),
+        "enabled_count": enabled_count,
+        "source_file": str(rules_path),
+    }
+    active_marker.write_text(json.dumps(marker_data, indent=2))
+
+    # Copy rules to active location (learned_routing_rules.json)
+    # The LearnedRuleStore expects rules at DEFAULT_RULES_PATH
+    active_rules_path = Path(DEFAULT_RULES_PATH)
+    active_rules_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Convert rules snapshot to LearnedRuleStore format
+    store_data = {
+        "version": "1.0",
+        "rules": [],
+        "active": True,
+        "activated_at": datetime.now().isoformat(),
+    }
+    for rule in rules_snapshot.rules:
+        store_data["rules"].append({
+            "pattern": rule.pattern,
+            "destination": rule.destination,
+            "confidence": rule.confidence,
+            "pattern_type": "keyword",
+            "source_folder": rule.source_folder,
+            "reasoning": rule.reasoning,
+            "enabled": rule.enabled,
+            "hit_count": 0,
+            "created_at": rule.generated_at if hasattr(rule, 'generated_at') else "",
+        })
+    active_rules_path.write_text(json.dumps(store_data, indent=2))
+
+    print("LEARNED RULES ACTIVATED")
+    print("=" * 40)
+    print(f"Total rules: {len(rules_snapshot.rules)}")
+    print(f"Enabled rules: {enabled_count}")
+    print()
+    print("Learned rules will now take priority over built-in taxonomy.")
+    print("Run `python3 -m organizer --learn-status` to check status.")
+
+    return 0
+
+
+def run_learn_status(args: argparse.Namespace) -> int:
+    """Run the learn-status command to show learned rules status.
+
+    Shows current learned rules status: active/inactive, rule count,
+    and last scan date.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
+    print("LEARNED RULES STATUS")
+    print("=" * 40)
+
+    # Check for active marker
+    active_marker = Path(".organizer/agent/learned_rules_active.json")
+    if active_marker.exists():
+        try:
+            marker_data = json.loads(active_marker.read_text())
+            print("Status: ACTIVE")
+            print(f"Activated: {marker_data.get('activated_at', 'unknown')}")
+            print(f"Total rules: {marker_data.get('rule_count', 0)}")
+            print(f"Enabled rules: {marker_data.get('enabled_count', 0)}")
+        except Exception:
+            print("Status: ACTIVE (metadata unavailable)")
+    else:
+        print("Status: INACTIVE")
+
+    print()
+
+    # Check for structure snapshot
+    structure_path = Path(DEFAULT_STRUCTURE_OUTPUT_PATH)
+    if structure_path.exists():
+        try:
+            snapshot = StructureSnapshot.load(structure_path)
+            print("Last structure scan:")
+            print(f"  Scanned: {snapshot.analyzed_at}")
+            print(f"  Root path: {snapshot.root_path}")
+            print(f"  Folders: {snapshot.total_folders}")
+            print(f"  Files: {snapshot.total_files}")
+            if snapshot.model_used:
+                print(f"  Model used: {snapshot.model_used}")
+        except Exception as e:
+            print(f"Structure data unavailable: {e}")
+    else:
+        print("No structure scan found.")
+        print("Run `python3 -m organizer --learn-structure [path]` to scan.")
+
+    print()
+
+    # Check for generated rules
+    rules_path = Path(DEFAULT_RULES_OUTPUT_PATH)
+    if rules_path.exists():
+        try:
+            rules_snapshot = LearnedRulesSnapshot.load(rules_path)
+            enabled = [r for r in rules_snapshot.rules if r.enabled]
+            print("Generated rules:")
+            print(f"  Total: {len(rules_snapshot.rules)}")
+            print(f"  Enabled: {len(enabled)}")
+            print(f"  Generated: {rules_snapshot.generated_at}")
+            if rules_snapshot.model_used:
+                print(f"  Model: {rules_snapshot.model_used}")
+        except Exception as e:
+            print(f"Rules data unavailable: {e}")
+    else:
+        print("No generated rules found.")
+
+    # Check for active rules (what LearnedRuleStore uses)
+    active_rules_path = Path(DEFAULT_RULES_PATH)
+    if active_rules_path.exists():
+        print()
+        print("Active rules file:")
+        print(f"  Location: {active_rules_path}")
+        try:
+            data = json.loads(active_rules_path.read_text())
+            rule_count = len(data.get("rules", []))
+            print(f"  Rules loaded: {rule_count}")
+        except Exception:
+            print("  Unable to read rules file")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI.
 
@@ -1107,7 +1490,13 @@ def main(argv: list[str] | None = None) -> int:
         from organizer.mcp_server import run
         run()
         return 0
-    if (
+    if args.learn_structure is not None:
+        exit_code = run_learn_structure(args)
+    elif args.learn_confirm:
+        exit_code = run_learn_confirm(args)
+    elif args.learn_status:
+        exit_code = run_learn_status(args)
+    elif (
         args.agent_init_config
         or args.agent_run
         or args.agent_once

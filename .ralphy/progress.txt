@@ -3479,3 +3479,50 @@ Task completed successfully.
 **Merge Priority Now:** learned rules → user overrides → built-in taxonomy → hardcoded ROUTING_RULES
 
 ---
+
+---
+**Date:** 2026-03-05
+**Task:** Phase 15 - Add onboarding CLI commands
+**Status:** COMPLETED
+
+**Changes Made:**
+1. **organizer/cli.py**: Added three new CLI commands for Learning-Agent onboarding:
+   - `--learn-structure [path]`: Triggers full folder structure scan, generates routing rules, outputs summary with folder count, rule count, and detected domain
+   - `--learn-confirm`: Activates learned rules after user reviews them; creates active marker file and copies rules to active location
+   - `--learn-status`: Shows current learned rules status (active/inactive, rule count, last scan date, structure info)
+
+2. **Argument parsing**: Added new arguments to create_parser() with appropriate help text
+3. **Argument validation**: Added validation for learn commands in validate_args():
+   - Path validation for --learn-structure
+   - Ensures only one learn action is used at a time
+   - Learn actions are recognized as standalone actions
+
+4. **New functions**:
+   - `run_learn_structure(args)`: Analyzes folder structure using LLM or keyword fallback, generates routing rules via domain detection and rule generator
+   - `run_learn_confirm(args)`: Loads rules from snapshot, creates active marker, copies rules to LearnedRuleStore location
+   - `run_learn_status(args)`: Displays current status including active/inactive, rule counts, last scan info
+
+5. **tests/test_cli.py**: Added 20 comprehensive tests covering:
+   - TestLearnStructureArgument: Argument parsing tests
+   - TestLearnCommandValidation: Validation tests for paths and multiple actions
+   - TestRunLearnStructure: Structure analysis and output tests
+   - TestRunLearnConfirm: Rule activation tests
+   - TestRunLearnStatus: Status display tests
+   - TestLearnMainIntegration: main() dispatch tests
+
+**Test Results:** 20 new tests, all passing
+**Linting:** All checks passed (ruff)
+
+**CLI Usage:**
+```bash
+# Analyze folder structure and generate rules
+python3 -m organizer --learn-structure /path/to/folder
+
+# Check current status
+python3 -m organizer --learn-status
+
+# Activate learned rules after review
+python3 -m organizer --learn-confirm
+```
+
+---

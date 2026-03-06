@@ -17,6 +17,9 @@ from organizer.cli import (
     get_content_mismatch_groups,
     main,
     run_execute,
+    run_learn_confirm,
+    run_learn_status,
+    run_learn_structure,
     run_plan,
     run_scan,
     validate_args,
@@ -3879,3 +3882,380 @@ class TestDryRunCLI:
             assert "[DRY-RUN MODE]" in captured.out
             assert "Dry-run mode: Actions will be proposed and validated but not executed" in captured.out
             assert "Tracking PRD task: test_task" in captured.out
+
+
+class TestLearnStructureArgument:
+    """Tests for --learn-structure argument parsing."""
+
+    def test_learn_structure_no_path(self):
+        """Test --learn-structure with no path defaults to '.'."""
+        parser = create_parser()
+        args = parser.parse_args(["--learn-structure"])
+        assert args.learn_structure == "."
+
+    def test_learn_structure_with_path(self):
+        """Test --learn-structure with explicit path."""
+        parser = create_parser()
+        args = parser.parse_args(["--learn-structure", "/some/path"])
+        assert args.learn_structure == "/some/path"
+
+    def test_learn_confirm_argument(self):
+        """Test --learn-confirm argument parsing."""
+        parser = create_parser()
+        args = parser.parse_args(["--learn-confirm"])
+        assert args.learn_confirm is True
+
+    def test_learn_status_argument(self):
+        """Test --learn-status argument parsing."""
+        parser = create_parser()
+        args = parser.parse_args(["--learn-status"])
+        assert args.learn_status is True
+
+
+class TestLearnCommandValidation:
+    """Tests for learn command argument validation."""
+
+    def test_learn_structure_invalid_path(self):
+        """Test validation fails for non-existent path."""
+        parser = create_parser()
+        args = parser.parse_args(["--learn-structure", "/nonexistent/path"])
+        errors = validate_args(args)
+        assert len(errors) >= 1
+        assert any("does not exist" in e for e in errors)
+
+    def test_learn_structure_with_valid_path(self):
+        """Test validation passes for valid path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parser = create_parser()
+            args = parser.parse_args(["--learn-structure", tmpdir])
+            errors = validate_args(args)
+            # Should not have path-related errors
+            path_errors = [e for e in errors if "path" in e.lower() and "exist" in e.lower()]
+            assert len(path_errors) == 0
+
+    def test_multiple_learn_actions_error(self):
+        """Test that using multiple learn actions produces an error."""
+        parser = create_parser()
+        # Using --learn-confirm with --learn-status
+        args = parser.parse_args(["--learn-confirm", "--learn-status"])
+        errors = validate_args(args)
+        assert len(errors) >= 1
+        assert any("only one learn action" in e.lower() for e in errors)
+
+    def test_learn_structure_is_standalone_action(self):
+        """Test --learn-structure is recognized as a valid action."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parser = create_parser()
+            args = parser.parse_args(["--learn-structure", tmpdir])
+            errors = validate_args(args)
+            # Should not have "must specify at least one action" error
+            action_errors = [e for e in errors if "must specify at least one action" in e.lower()]
+            assert len(action_errors) == 0
+
+    def test_learn_confirm_is_standalone_action(self):
+        """Test --learn-confirm is recognized as a valid action."""
+        parser = create_parser()
+        args = parser.parse_args(["--learn-confirm"])
+        errors = validate_args(args)
+        # Should not have "must specify at least one action" error
+        action_errors = [e for e in errors if "must specify at least one action" in e.lower()]
+        assert len(action_errors) == 0
+
+    def test_learn_status_is_standalone_action(self):
+        """Test --learn-status is recognized as a valid action."""
+        parser = create_parser()
+        args = parser.parse_args(["--learn-status"])
+        errors = validate_args(args)
+        # Should not have "must specify at least one action" error
+        action_errors = [e for e in errors if "must specify at least one action" in e.lower()]
+        assert len(action_errors) == 0
+
+
+class TestRunLearnStructure:
+    """Tests for run_learn_structure function."""
+
+    def test_learn_structure_creates_snapshot(self, capsys):
+        """Test --learn-structure creates structure snapshot."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test directory structure
+            docs_dir = Path(tmpdir) / "Documents"
+            docs_dir.mkdir()
+            (docs_dir / "file1.pdf").touch()
+            (docs_dir / "file2.txt").touch()
+
+            work_dir = Path(tmpdir) / "Work"
+            work_dir.mkdir()
+            (work_dir / "project.docx").touch()
+
+            # Create .organizer dir for output
+            organizer_dir = Path(tmpdir) / ".organizer" / "agent"
+            organizer_dir.mkdir(parents=True, exist_ok=True)
+
+            # Change to tmpdir to use relative paths
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                parser = create_parser()
+                args = parser.parse_args(["--learn-structure", tmpdir])
+                exit_code = run_learn_structure(args)
+
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "LEARNING STRUCTURE ANALYSIS" in captured.out
+                assert "Folders analyzed:" in captured.out
+                assert "Files found:" in captured.out
+                assert "Rules generated:" in captured.out
+            finally:
+                os.chdir(original_cwd)
+
+    def test_learn_structure_outputs_status_inactive(self, capsys):
+        """Test --learn-structure shows inactive status."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create minimal structure
+            docs = Path(tmpdir) / "docs"
+            docs.mkdir()
+
+            organizer_dir = Path(tmpdir) / ".organizer" / "agent"
+            organizer_dir.mkdir(parents=True, exist_ok=True)
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                parser = create_parser()
+                args = parser.parse_args(["--learn-structure", tmpdir])
+                exit_code = run_learn_structure(args)
+
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "Status: INACTIVE" in captured.out
+                assert "--learn-confirm" in captured.out
+            finally:
+                os.chdir(original_cwd)
+
+
+class TestRunLearnConfirm:
+    """Tests for run_learn_confirm function."""
+
+    def test_learn_confirm_no_rules_error(self, capsys):
+        """Test --learn-confirm fails when no rules exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                parser = create_parser()
+                args = parser.parse_args(["--learn-confirm"])
+                exit_code = run_learn_confirm(args)
+
+                assert exit_code == 1
+
+                captured = capsys.readouterr()
+                assert "No learned rules found" in captured.err
+            finally:
+                os.chdir(original_cwd)
+
+    def test_learn_confirm_activates_rules(self, capsys):
+        """Test --learn-confirm activates existing rules."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create rules file
+            rules_dir = Path(tmpdir) / ".organizer" / "agent"
+            rules_dir.mkdir(parents=True, exist_ok=True)
+
+            rules_data = {
+                "version": "1.0",
+                "root_path": tmpdir,
+                "rules": [
+                    {
+                        "pattern": "invoice",
+                        "destination": "Finances/Invoices",
+                        "confidence": 0.85,
+                        "source_folder": "Invoices",
+                        "reasoning": "Invoice documents",
+                        "enabled": True,
+                    }
+                ],
+                "total_folders_analyzed": 1,
+                "model_used": "",
+                "generated_at": "2024-01-01T00:00:00",
+            }
+            (rules_dir / "learned_routing_rules.json").write_text(
+                json.dumps(rules_data), encoding="utf-8"
+            )
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                parser = create_parser()
+                args = parser.parse_args(["--learn-confirm"])
+                exit_code = run_learn_confirm(args)
+
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "LEARNED RULES ACTIVATED" in captured.out
+                assert "Total rules: 1" in captured.out
+
+                # Check that active marker was created
+                active_marker = Path(tmpdir) / ".organizer" / "agent" / "learned_rules_active.json"
+                assert active_marker.exists()
+
+                marker_data = json.loads(active_marker.read_text())
+                assert marker_data["active"] is True
+            finally:
+                os.chdir(original_cwd)
+
+
+class TestRunLearnStatus:
+    """Tests for run_learn_status function."""
+
+    def test_learn_status_inactive(self, capsys):
+        """Test --learn-status shows inactive when no rules."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                parser = create_parser()
+                args = parser.parse_args(["--learn-status"])
+                exit_code = run_learn_status(args)
+
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "LEARNED RULES STATUS" in captured.out
+                assert "Status: INACTIVE" in captured.out
+            finally:
+                os.chdir(original_cwd)
+
+    def test_learn_status_shows_structure_info(self, capsys):
+        """Test --learn-status shows structure info when available."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create structure file
+            structure_dir = Path(tmpdir) / ".organizer" / "agent"
+            structure_dir.mkdir(parents=True, exist_ok=True)
+
+            structure_data = {
+                "version": "1.0",
+                "root_path": tmpdir,
+                "max_depth": 4,
+                "total_folders": 5,
+                "total_files": 10,
+                "total_size_bytes": 1000,
+                "folders": [],
+                "strategy_description": "Test strategy",
+                "model_used": "",
+                "analyzed_at": "2024-01-01T00:00:00",
+            }
+            (structure_dir / "learned_structure.json").write_text(
+                json.dumps(structure_data), encoding="utf-8"
+            )
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                parser = create_parser()
+                args = parser.parse_args(["--learn-status"])
+                exit_code = run_learn_status(args)
+
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "Last structure scan:" in captured.out
+                assert "Folders: 5" in captured.out
+                assert "Files: 10" in captured.out
+            finally:
+                os.chdir(original_cwd)
+
+    def test_learn_status_active(self, capsys):
+        """Test --learn-status shows active when rules are confirmed."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create active marker
+            marker_dir = Path(tmpdir) / ".organizer" / "agent"
+            marker_dir.mkdir(parents=True, exist_ok=True)
+
+            marker_data = {
+                "active": True,
+                "activated_at": "2024-01-01T12:00:00",
+                "rule_count": 5,
+                "enabled_count": 4,
+            }
+            (marker_dir / "learned_rules_active.json").write_text(
+                json.dumps(marker_data), encoding="utf-8"
+            )
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                parser = create_parser()
+                args = parser.parse_args(["--learn-status"])
+                exit_code = run_learn_status(args)
+
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "Status: ACTIVE" in captured.out
+                assert "Total rules: 5" in captured.out
+                assert "Enabled rules: 4" in captured.out
+            finally:
+                os.chdir(original_cwd)
+
+
+class TestLearnMainIntegration:
+    """Integration tests for learn commands via main()."""
+
+    def test_main_learn_structure(self, capsys):
+        """Test main() dispatches to learn_structure."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test structure
+            docs = Path(tmpdir) / "Documents"
+            docs.mkdir()
+            (docs / "test.pdf").touch()
+
+            organizer_dir = Path(tmpdir) / ".organizer" / "agent"
+            organizer_dir.mkdir(parents=True, exist_ok=True)
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                exit_code = main(["--learn-structure", tmpdir])
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "LEARNING STRUCTURE ANALYSIS" in captured.out
+            finally:
+                os.chdir(original_cwd)
+
+    def test_main_learn_status(self, capsys):
+        """Test main() dispatches to learn_status."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                exit_code = main(["--learn-status"])
+                assert exit_code == 0
+
+                captured = capsys.readouterr()
+                assert "LEARNED RULES STATUS" in captured.out
+            finally:
+                os.chdir(original_cwd)
+
+    def test_main_learn_confirm_no_rules(self, capsys):
+        """Test main() learn_confirm fails without rules."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                exit_code = main(["--learn-confirm"])
+                assert exit_code == 1
+            finally:
+                os.chdir(original_cwd)

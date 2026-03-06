@@ -584,7 +584,7 @@ A web-based dashboard that:
   - `scatter_detector.py` (Phase 12): measure violations against learned structure first
   - `refile_agent.py` (Phase 14): learned rules as source of truth for "correct" placement
   - Consolidation planner: respect learned hierarchy; never merge folders the snapshot says are separate
-- [ ] Add onboarding CLI commands
+- [x] Add onboarding CLI commands
   - `python3 -m organizer --learn-structure [path]`: trigger full scan, output summary (folder count, rule count, detected domain)
   - `python3 -m organizer --learn-confirm`: activate learned rules after user reviews them
   - `python3 -m organizer --learn-status`: current learned rules status (active/inactive, rule count, last scan date)
