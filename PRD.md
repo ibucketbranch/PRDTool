@@ -538,7 +538,7 @@ A web-based dashboard that:
   - If file moved to In-Box: skip (Filing-Agent handles it on next cycle)
 - [x] Update routing history on refile
   - On approval: update `RoutingRecord` to reflect new filing; preserve original with status `refiled`
-- [ ] Add `GET /api/refile/drift-report` dashboard endpoint
+- [x] Add `GET /api/refile/drift-report` dashboard endpoint
   - Returns drifted files with LLM assessment, reason, model_used; filterable by priority and root bin
 - [ ] Add drift report panel to Agents dashboard page
   - Color-coded: red for likely accidental, yellow for likely intentional; LLM reasoning visible

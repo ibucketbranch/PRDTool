@@ -3267,3 +3267,25 @@ Task completed successfully.
 - Fixed lint error: removed unused imports (json, DEFAULT_HISTORY_PATH, MAX_ENTRIES)
 - All 20 routing history tests pass, linting passes
 - Task "Update routing history on refile" marked complete in PRD.md
+
+## 2026-03-05
+- Completed Phase 14 task: "Add GET /api/refile/drift-report dashboard endpoint"
+  - Created dashboard/app/api/refile/drift-report/route.ts with:
+    - GET endpoint that returns drifted files with LLM assessment, reason, model_used
+    - Supports filtering by priority (high/low/all) and root bin
+    - Reads from queue files (refile_drift actions) as primary source
+    - Falls back to saved drift_report.json when queue is empty
+    - Groups drifts by root bin for organized display
+    - Counts accidental vs intentional drifts
+    - Proper TypeScript types: DriftRecord, DriftGroup, DriftReportResponse
+  - Created dashboard/__tests__/drift-report-api.test.ts with 21 tests covering:
+    - Parameter validation (missing basePath, relative path, non-existent path)
+    - Queue reading (empty queue, drift records, only refile_drift actions, counts)
+    - Priority filtering (high, low, all)
+    - Root bin filtering (case insensitive)
+    - Saved report fallback (when queue empty, queue preferred over report)
+    - Error handling (invalid JSON files skipped)
+    - Response structure validation
+    - Model usage and keyword fallback detection
+  - All 21 tests pass, linting passes
+  - Task marked complete in PRD.md
