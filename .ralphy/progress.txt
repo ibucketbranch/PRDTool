@@ -3526,3 +3526,35 @@ python3 -m organizer --learn-confirm
 ```
 
 ---
+
+## 2026-03-05
+- Implemented Phase 15 task: Add learned rules page to dashboard
+  - Created `dashboard/app/api/learned-rules/route.ts`:
+    - GET endpoint to fetch learned structure, routing rules, domain context, and status
+    - POST endpoint with actions: rescan (trigger structure scan), toggle-rule (enable/disable rules)
+    - Reads from `.organizer/agent/learned_structure.json`, `learned_routing_rules.json`, `domain_context.json`
+  - Created `dashboard/app/learned-rules/page.tsx`:
+    - Status overview panel showing active status, rule counts, last scan date
+    - Strategy description section displaying LLM-generated organizational summary
+    - Domain detection panel with confidence and evidence list
+    - Collapsible folder tree component showing learned structure
+    - Routing rules list with filter (all/enabled/disabled) and toggle buttons
+    - Re-scan Structure button to trigger structure analysis
+  - Added DashboardCard for "Learned Rules" to main dashboard page
+  - Created `dashboard/__tests__/learned-rules-api.test.ts` with 17 tests:
+    - Basic GET functionality (empty data, structure, rules, domain context)
+    - Status calculation tests
+    - Error handling (invalid JSON)
+    - POST toggle-rule action tests
+    - Response structure validation
+  - Created `dashboard/__tests__/learned-rules-page.test.tsx` with 17 tests:
+    - Page rendering and loading state
+    - Status display
+    - Strategy description
+    - Domain context display
+    - Folder tree
+    - Rules list and filtering
+    - Toggle and rescan actions
+    - Error handling
+- All 34 tests pass, linting passes for new files
+- Task completed successfully

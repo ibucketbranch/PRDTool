@@ -57,6 +57,11 @@ export default function Home() {
           description="Search file DNA, view provenance, and find duplicates"
           href="/file-intelligence"
         />
+        <DashboardCard
+          title="Learned Rules"
+          description="View learned folder structure, routing rules, and domain detection"
+          href="/learned-rules"
+        />
       </div>
     </main>
   );

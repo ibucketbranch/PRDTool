@@ -588,7 +588,7 @@ A web-based dashboard that:
   - `python3 -m organizer --learn-structure [path]`: trigger full scan, output summary (folder count, rule count, detected domain)
   - `python3 -m organizer --learn-confirm`: activate learned rules after user reviews them
   - `python3 -m organizer --learn-status`: current learned rules status (active/inactive, rule count, last scan date)
-- [ ] Add learned rules page to dashboard
+- [x] Add learned rules page to dashboard
   - Collapsible folder tree of learned structure with `strategy_description` shown prominently
   - Domain detection result with confidence and evidence list
   - Browse generated rules: pattern, destination, confidence; toggle individual rules on/off
