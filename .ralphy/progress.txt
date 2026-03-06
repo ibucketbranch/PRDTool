@@ -3069,3 +3069,20 @@ Task completed successfully.
   - TestCaseInsensitiveSearch: filename, tags, tag param
 - All 29 tests pass, no new linting errors
 - Task "Add GET /api/file-dna dashboard endpoint" marked complete in PRD.md
+
+## 2026-03-05
+- Completed Phase 13 task: Add `GET /api/file-dna/duplicates` dashboard endpoint
+  - Endpoint already existed at dashboard/app/api/file-dna/duplicates/route.ts
+  - Created dashboard/__tests__/file-dna-duplicates-api.test.ts with 21 tests covering:
+    - Success response format with duplicate groups
+    - Correct hash, file paths, and count per group
+    - Total duplicates calculation
+    - Wasted bytes calculation
+    - Handling entries with no hash
+    - Handling fs.stat failures gracefully
+    - Empty registry file handling
+    - Invalid JSON handling
+    - Missing entries array handling
+  - Fixed lint error: removed unused 'canonical' variable in duplicates/route.ts
+  - All tests pass, linting passes for affected files
+  - Task completed successfully

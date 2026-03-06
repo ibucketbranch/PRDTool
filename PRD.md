@@ -502,7 +502,7 @@ A web-based dashboard that:
   - Example: `nexus_letter.pdf` + `dbq_ptsd.pdf` → companions (both VA evidence)
 - [x] Add `GET /api/file-dna` dashboard endpoint
   - Search by keyword, hash, or tag; returns provenance, related files, duplicate status
-- [ ] Add `GET /api/file-dna/duplicates` dashboard endpoint
+- [x] Add `GET /api/file-dna/duplicates` dashboard endpoint
   - Returns duplicate groups: hash, file count, wasted bytes, paths
 - [ ] Add file intelligence page to dashboard
   - DNA search, duplicate report with storage savings estimate, relationship view

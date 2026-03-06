@@ -43,7 +43,6 @@ export async function GET() {
 
     for (const [h, paths] of Object.entries(hashToPaths)) {
       if (paths.length < 2) continue;
-      const canonical = paths[0];
       const dupes = paths.slice(1);
       let bytes = 0;
       try {
