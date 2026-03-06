@@ -506,7 +506,7 @@ A web-based dashboard that:
   - Returns duplicate groups: hash, file count, wasted bytes, paths
 - [x] Add file intelligence page to dashboard
   - DNA search, duplicate report with storage savings estimate, relationship view
-- [ ] Add tests
+- [x] Add tests
   - `test_file_dna.py`: hash computation, T1 tag extraction (mock LLM), keyword fallback when LLM down
   - `test_dedup_engine.py`: exact dedup (hash), T2 fuzzy dedup (mock LLM), archive path generation
   - `test_relationship_linker.py`: companion detection (mock T2), T3 escalation trigger for large clusters

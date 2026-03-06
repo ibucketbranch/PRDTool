@@ -3105,3 +3105,42 @@ Task completed successfully.
 - Build passes, lint passes on new files
 - Pre-existing test failures remain but are unrelated to this change
 - Task completed successfully
+
+## 2026-03-05
+- Verified Phase 13 tests are complete and passing (Phase 13: Intelligence-Agent)
+  - `test_file_dna.py`: 57 tests covering:
+    - FileDNA dataclass creation and serialization
+    - TagExtractionResult creation and to_tags_list
+    - compute_file_hash() for SHA-256 hashing (small, empty, large files)
+    - get_content_preview() for text extraction (text, binary, images, whitespace)
+    - extract_tags() with keyword fallback (year, document type, organizations)
+    - extract_tags() with mocked LLM (success, unavailable, failure, invalid JSON, code block)
+    - DNARegistry load/save/register/lookup operations
+    - DNARegistry LLM integration with mock client and model router
+  - `test_dedup_engine.py`: 43 tests covering:
+    - DuplicateGroup dataclass creation, serialization, file_count property
+    - FuzzyDuplicateGroup dataclass creation and serialization
+    - get_archive_path() function for duplicate archiving
+    - _get_filename_similarity() for copy pattern matching
+    - find_exact_duplicates() with hash matching and wasted bytes calculation
+    - _find_fuzzy_candidates() for similar filename detection
+    - _analyze_pair_with_keywords() for copy and content overlap detection
+    - find_fuzzy_duplicates() with keyword fallback and mocked LLM
+    - DedupEngine full workflow, report structure, archive path generation
+    - DedupEngine with mocked LLM and model router
+  - `test_relationship_linker.py`: 47 tests covering:
+    - FileRelationship dataclass creation and roundtrip serialization
+    - RelationshipCluster file_count and T3 escalation threshold
+    - _get_bin_from_path() for VA, Finances, Employment bins
+    - _group_files_by_bin() for file grouping
+    - _calculate_pair_priority() for keyword and document type matching
+    - _get_candidate_pairs() with limits and edge cases
+    - _analyze_relationship_with_keywords() for VA, tax, version detection
+    - _analyze_relationship_with_llm() with mocked T2 and T3 escalation
+    - _parse_llm_json_response() for direct JSON, code blocks, and invalid input
+    - detect_relationships() with LLM and keyword fallback
+    - RelationshipLinker class: find_all, find_for_file, get_companions, get_report
+    - _similarity_ratio() for string comparison
+    - Integration tests for full workflow
+  - All 147 tests pass, linting passes
+  - Task "Add tests" for Phase 13 marked complete in PRD.md
