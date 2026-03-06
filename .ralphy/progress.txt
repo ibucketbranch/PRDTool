@@ -3385,3 +3385,32 @@ Task completed successfully.
     - Edge cases (3 tests): empty snapshot, LLM exception, router exception
   - All 33 tests pass, linting passes
   - Task marked complete in PRD.md
+
+## 2026-03-05
+- Implemented LLM-powered rule generation module for Phase 15 (Learning-Agent)
+  - Created organizer/rule_generator.py module with:
+    - RoutingRule dataclass: pattern, destination, confidence, reasoning, source_folder, model_used, enabled
+    - LearnedRulesSnapshot dataclass: collection of rules with save/load to JSON
+    - RuleGenerator class with LLM-powered rule generation using T2 Smart model
+    - Pattern-based fallback rule generation when LLM unavailable:
+      - File extension patterns from dominant file types
+      - Keyword patterns from folder names
+      - Prefix patterns from common filename prefixes
+      - Year patterns from naming conventions
+    - Graceful degradation: LLM → pattern-based fallback
+    - Convenience functions: generate_rules(), load_rules()
+  - Created tests/test_rule_generator.py with 38 unit tests covering:
+    - RoutingRule dataclass creation and serialization
+    - LearnedRulesSnapshot creation, serialization, save/load
+    - LLM-powered rule generation with mock T2 Smart
+    - Pattern-based fallback when LLM unavailable
+    - Graceful degradation from LLM to pattern fallback
+    - Confidence score calculation and clamping
+    - Rule filtering and enabling/disabling
+    - Multiple folders and max_rules_per_folder limits
+    - Edge cases: empty snapshot, LLM exceptions, router exceptions
+- All 38 new tests pass, 116 total Phase 15 tests pass
+- Linting passes
+- Updated PRD to mark task complete
+- Task completed successfully
+

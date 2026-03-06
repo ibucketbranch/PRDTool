@@ -567,7 +567,7 @@ A web-based dashboard that:
   - Prompt: `"Given this folder structure (top 3 levels with file counts and sample filenames): {structure_json}. What domain is this? Options: personal, medical, legal, automotive, creative, engineering, generic_business. Reply JSON {domain, confidence, evidence: [list of signals that matched]}"`
   - `DomainContext` dataclass: detected_domain, confidence, evidence, model_used
   - Graceful degradation: if LLM unavailable, keyword-match folder names against domain signal lists
-- [ ] LLM-powered rule generation (replaces rule-based rule_generator)
+- [x] LLM-powered rule generation (replaces rule-based rule_generator)
   - Primary model: **T2 Smart**
   - For each folder, prompt: `"Folder '{folder_name}' contains these files: {filename_list}. What routing rule describes what belongs here? Reply JSON {pattern, destination, confidence, reasoning}"`
   - Output `learned_routing_rules.json`
