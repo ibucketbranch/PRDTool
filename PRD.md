@@ -672,7 +672,7 @@ A web-based dashboard that:
   - Dashboard can show agreement rate to build trust before disabling keyword fallback
 
 #### 16.3 -- Metadata Enrichment Service
-- [ ] Create `organizer/llm_enrichment.py` module
+- [x] Create `organizer/llm_enrichment.py` module
   - `enrich_file(filename, content_text) -> FileEnrichment`: extract structured metadata via LLM
   - `FileEnrichment` dataclass: document_type, date_references, people, organizations, key_topics, summary (1-2 sentences), suggested_tags
   - Primary model: **T2 Smart** (structured extraction needs accuracy)

@@ -3589,3 +3589,78 @@ python3 -m organizer --learn-confirm
 
 **Status:** Completed - Phase 15 tests task marked as done in PRD.md
 
+
+---
+## Phase 16.3: Metadata Enrichment Service - 2026-03-05
+
+**Task:** Create `organizer/llm_enrichment.py` module
+
+**Implementation:**
+
+1. Created `organizer/llm_enrichment.py` with the following components:
+
+   **FileEnrichment dataclass:**
+   - `document_type`: Type of document (invoice, tax_return, contract, etc.)
+   - `date_references`: List of dates found (e.g., "March 2024", "2023-12-15")
+   - `people`: List of people mentioned
+   - `organizations`: List of organizations mentioned
+   - `key_topics`: Main topics or themes
+   - `summary`: Plain-English 1-2 sentence summary
+   - `suggested_tags`: Combined list of relevant tags
+   - `confidence`: 0.0-1.0 confidence score
+   - `model_used`: LLM model used (empty if keyword fallback)
+   - `used_keyword_fallback`: Whether keyword fallback was used
+   - `enriched_at`: ISO timestamp
+   - `duration_ms`: Processing time
+   - `matches_search(query)`: Method to check if enrichment matches a search query
+
+   **EnrichmentCache class:**
+   - Persistent cache keyed by file SHA-256 hash
+   - Stores enrichments in `.organizer/agent/enrichment_cache.json`
+   - Methods: `get()`, `set()`, `has()`, `remove()`, `clear()`, `get_all()`
+   - Handles corrupted cache gracefully
+
+   **enrich_file() function:**
+   - Primary model: T2 Smart (qwen2.5-coder:14b) for accuracy
+   - Uses `extract_metadata` prompt from registry when available
+   - Graceful degradation to keyword fallback when LLM unavailable
+   - Returns structured FileEnrichment
+
+   **LLMEnricher class (high-level service):**
+   - `enrich(file_path)`: Enrich single file with automatic caching
+   - `enrich_batch(file_paths, progress_callback, rate_limit_ms)`: Batch enrichment
+   - `force_refresh` parameter to bypass cache
+   - `get_cache_stats()` and `clear_cache()` methods
+
+   **Keyword fallback extraction:**
+   - Document type detection via keyword matching
+   - Date extraction: years, month+year, ISO, US formats
+   - Organization extraction: IRS, SSA, VA, Amazon, Verizon, banks, etc.
+   - People extraction: basic title + name patterns
+   - Topic extraction: finance, tax, medical, legal, etc.
+   - Keyword-based summary generation
+
+2. Created `tests/test_llm_enrichment.py` with 64 comprehensive tests:
+   - TestFileEnrichment: dataclass and serialization (9 tests)
+   - TestEnrichmentCache: caching operations (7 tests)
+   - TestKeywordExtraction: extraction helper functions (13 tests)
+   - TestEnrichWithKeywords: keyword fallback (3 tests)
+   - TestParseJsonResponse: JSON parsing robustness (4 tests)
+   - TestEnsureList: list helper (4 tests)
+   - TestExtractConfidence: confidence extraction (5 tests)
+   - TestEnrichFile: main function (6 tests)
+   - TestLLMEnricher: high-level service (9 tests)
+   - TestEnrichmentCacheEntry: cache entry dataclass (2 tests)
+   - TestIntegration: end-to-end tests (2 tests)
+
+**Test Results:** 64 tests, all passing
+**Linting:** All checks passed (ruff)
+
+**Features supporting PRD search requirement:**
+- `FileEnrichment.matches_search(query)` enables natural language search
+- Example: "Find my Verizon bill from March 2024" matches against:
+  - `organizations: ["Verizon"]`
+  - `date_references: ["March 2024"]`
+- No vector database needed - structured metadata + text search
+
+**Status:** Completed - Phase 16.3 first task marked as done in PRD.md
