@@ -3361,3 +3361,27 @@ Task completed successfully.
   - Convenience functions
 - All 45 tests pass, linting passes
 - Task completed successfully: Phase 15 - Create `organizer/structure_analyzer.py` module
+
+## 2026-03-05
+- Completed Phase 15 task: "LLM-powered domain detection (replaces rule-based domain_detector)"
+  - Created `organizer/domain_detector.py` module with:
+    - `DomainContext` dataclass: detected_domain, confidence, evidence, model_used, detected_at
+    - `DomainDetector` class with T2 Smart LLM-powered detection
+    - Keyword signal sets for all 7 domains: personal, medical, legal, automotive, creative, engineering, generic_business
+    - `_build_structure_summary()` for building LLM prompts from folder structure
+    - `_detect_with_llm()` using T2 Smart model via model_router
+    - `_parse_llm_response()` with JSON extraction from markdown code blocks
+    - `_detect_with_keywords()` fallback when LLM unavailable
+    - Graceful degradation: LLM unavailable -> keyword matching
+    - Confidence scoring based on keyword match count
+    - Convenience function `detect_domain()` for direct use
+  - Created `tests/test_domain_detector.py` with 33 tests covering:
+    - DomainContext dataclass (6 tests): creation, serialization, from_dict, defaults, used_llm property
+    - Domain type constants (2 tests): all domains have keywords, expected domain types
+    - Keyword fallback (9 tests): detection for each domain type, default behavior, confidence scaling
+    - LLM detection (8 tests): success, model router usage, fallback scenarios, JSON extraction, validation
+    - Convenience function (2 tests): with and without LLM client
+    - Structure summary building (3 tests): max_depth, file types, samples
+    - Edge cases (3 tests): empty snapshot, LLM exception, router exception
+  - All 33 tests pass, linting passes
+  - Task marked complete in PRD.md

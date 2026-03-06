@@ -562,7 +562,7 @@ A web-based dashboard that:
   - At each level, record: folder name, depth, file count, file types present, naming patterns
   - Output `learned_structure.json`: snapshot with metadata per node and `strategy_description` field
   - Respect `.organizer` ignore patterns; skip system folders (`.Trash`, `node_modules`, etc.)
-- [ ] LLM-powered domain detection (replaces rule-based domain_detector)
+- [x] LLM-powered domain detection (replaces rule-based domain_detector)
   - Primary model: **T2 Smart**
   - Prompt: `"Given this folder structure (top 3 levels with file counts and sample filenames): {structure_json}. What domain is this? Options: personal, medical, legal, automotive, creative, engineering, generic_business. Reply JSON {domain, confidence, evidence: [list of signals that matched]}"`
   - `DomainContext` dataclass: detected_domain, confidence, evidence, model_used
