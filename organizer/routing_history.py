@@ -30,7 +30,7 @@ class RoutingRecord:
     confidence: float
     matched_keywords: list[str] = field(default_factory=list)
     routed_at: str = ""
-    status: str = "executed"  # executed | corrected | reverted | error
+    status: str = "executed"  # executed | corrected | reverted | error | refiled
 
     def __post_init__(self) -> None:
         if not self.routed_at:
@@ -110,3 +110,77 @@ class RoutingHistory:
     def is_correction(self, filename: str) -> bool:
         """True if this file was previously routed and is back in In-Box."""
         return self.find_by_filename(filename) is not None
+
+    def mark_as_refiled(self, filename: str) -> bool:
+        """Mark the most recent record for this filename as refiled.
+
+        Used when a drifted file is approved for refiling. The original
+        record is preserved with status='refiled' so we maintain history.
+
+        Args:
+            filename: The filename to mark as refiled.
+
+        Returns:
+            True if a record was found and marked, False otherwise.
+        """
+        for i in range(len(self._records) - 1, -1, -1):
+            if self._records[i].filename == filename:
+                self._records[i].status = "refiled"
+                self._save()
+                return True
+        return False
+
+    def record_refile(
+        self,
+        filename: str,
+        source_path: str,
+        destination_bin: str,
+        confidence: float,
+        matched_keywords: list[str] | None = None,
+        original_record: RoutingRecord | None = None,
+    ) -> RoutingRecord:
+        """Record a refile action, marking the original record as refiled.
+
+        This method:
+        1. Marks the original routing record as 'refiled' (if found)
+        2. Creates a new routing record for the refile action
+
+        Args:
+            filename: The filename being refiled.
+            source_path: Current path where file was found (drifted location).
+            destination_bin: New destination path for the file.
+            confidence: Confidence in the refile decision.
+            matched_keywords: Keywords that matched (optional).
+            original_record: The original routing record (for reference).
+
+        Returns:
+            The new RoutingRecord for the refile action.
+        """
+        # Mark the original record as refiled
+        self.mark_as_refiled(filename)
+
+        # Create a new record for the refile
+        new_record = RoutingRecord(
+            filename=filename,
+            source_path=source_path,
+            destination_bin=destination_bin,
+            confidence=confidence,
+            matched_keywords=matched_keywords or [],
+            status="executed",
+        )
+
+        # Append and save
+        self._records.append(new_record)
+        while len(self._records) > MAX_ENTRIES:
+            self._records.pop(0)
+        self._save()
+
+        return new_record
+
+    def get_all_records(self) -> list[RoutingRecord]:
+        """Get all records in the history."""
+        return list(self._records)
+
+    def find_refiled(self) -> list[RoutingRecord]:
+        """Find all records that have been refiled."""
+        return [r for r in self._records if r.status == "refiled"]

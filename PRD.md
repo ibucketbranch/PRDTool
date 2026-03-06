@@ -536,7 +536,7 @@ A web-based dashboard that:
 - [x] Distinguish intentional from accidental drift for queue priority
   - `likely_accidental` = high priority (red in dashboard); `likely_intentional` = low priority (yellow)
   - If file moved to In-Box: skip (Filing-Agent handles it on next cycle)
-- [ ] Update routing history on refile
+- [x] Update routing history on refile
   - On approval: update `RoutingRecord` to reflect new filing; preserve original with status `refiled`
 - [ ] Add `GET /api/refile/drift-report` dashboard endpoint
   - Returns drifted files with LLM assessment, reason, model_used; filterable by priority and root bin

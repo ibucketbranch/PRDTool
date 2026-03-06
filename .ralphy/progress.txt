@@ -3242,3 +3242,28 @@ Task completed successfully.
     - Updated `test_drift_record_to_action_conversion` to verify high priority
   - All 13 drift tests pass, linting passes
   - Task "Distinguish intentional from accidental drift for queue priority" marked complete in PRD.md
+
+## 2026-03-05
+- Completed Phase 14 task: "Update routing history on refile"
+  - Added `refiled` status to RoutingRecord valid statuses comment
+  - Added `mark_as_refiled(filename)` method to RoutingHistory:
+    - Finds the most recent routing record for a filename
+    - Updates its status to 'refiled'
+    - Persists change to disk
+    - Returns True if found, False otherwise
+  - Added `record_refile()` method to RoutingHistory:
+    - Marks original record as 'refiled' (preserves history)
+    - Creates new RoutingRecord with status='executed' for the refile action
+    - Handles case where no original record exists
+    - Persists both changes to disk
+  - Added `get_all_records()` method for retrieving all history records
+  - Added `find_refiled()` method for finding all records with status='refiled'
+- Created 15 new tests in tests/test_routing_history.py:
+  - TestMarkAsRefiled (4 tests): status update, not found case, most recent update, disk persistence
+  - TestRecordRefile (4 tests): new record creation, original marked refiled, no original case, disk persistence
+  - TestFindRefiled (2 tests): returns refiled records, empty when none
+  - TestGetAllRecords (2 tests): returns copy, empty history
+  - TestRoutingRecordRefiledStatus (3 tests): creation, from_dict, to_dict
+- Fixed lint error: removed unused imports (json, DEFAULT_HISTORY_PATH, MAX_ENTRIES)
+- All 20 routing history tests pass, linting passes
+- Task "Update routing history on refile" marked complete in PRD.md
