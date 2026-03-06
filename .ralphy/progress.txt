@@ -3332,3 +3332,32 @@ Task completed successfully.
 - Linting passes
 - Verified existing continuous_agent tests cover `reason` and `model_used` fields requirement
 - Updated PRD.md to mark Phase 14 tests task as complete
+
+## 2026-03-05
+- Created `organizer/structure_analyzer.py` module for Phase 15 Learning-Agent
+  - Implemented `FolderNode` dataclass with fields: path, name, depth, file_count, subfolder_count, total_size_bytes, file_types, sample_filenames, naming_patterns, has_date_structure, scanned_at
+  - Implemented `StructureSnapshot` dataclass for complete analysis results with save/load functionality
+  - Implemented `StructureAnalyzer` class with:
+    - `analyze(root_path, max_depth)` - walks filesystem tree up to configurable depth
+    - `_walk_tree()` - efficient tree traversal using os.walk
+    - `_should_ignore()` - respects system folders (.git, __pycache__, node_modules, .Trash, etc.) and custom ignore patterns
+    - `_analyze_folder()` - extracts metadata (file counts, types, size) for each folder
+    - `_detect_naming_patterns()` - detects YYYY_*, YYYY-MM-DD_*, common prefix, and version suffix patterns
+    - `_detect_date_structure()` - identifies year/month-based folder organization
+    - `_generate_narration()` - LLM-powered (T2 Smart) or keyword-based strategy description
+    - `_narrate_with_llm()` - uses T2 Smart model for complex reasoning
+    - `_narrate_with_keywords()` - fallback summary when LLM unavailable
+  - Added convenience functions: `analyze_structure()`, `load_structure()`
+  - Output stored at `.organizer/agent/learned_structure.json`
+- Created `tests/test_structure_analyzer.py` with 45 tests covering:
+  - FolderNode dataclass creation, serialization, and deserialization
+  - StructureSnapshot creation, save/load, filtering methods
+  - Tree walking with depth limiting
+  - Ignore patterns (system folders, hidden folders, custom patterns)
+  - Naming pattern detection (year prefix, date prefix, common prefix, version suffix)
+  - Date structure detection (year folders, month folders numeric and named)
+  - LLM narration with mock client
+  - Keyword fallback narration
+  - Convenience functions
+- All 45 tests pass, linting passes
+- Task completed successfully: Phase 15 - Create `organizer/structure_analyzer.py` module
