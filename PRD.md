@@ -483,7 +483,7 @@ A web-based dashboard that:
   - `extract_tags(filename, content_text, llm_client) -> list[str]`: call **T1 Fast** with prompt:
     `"Extract structured tags from file '{filename}', content: '{first_500_chars}'. Reply JSON {document_type, year, organizations, people, topics, suggested_tags}"`
   - Graceful degradation: if LLM unavailable, fall back to regex year extraction + ROUTING_RULES keyword matching
-- [ ] Wire DNA registration into agent cycle
+- [x] Wire DNA registration into agent cycle
   - After each successful inbox move or consolidation, register file's DNA
   - During full scan, register newly discovered files with `origin="scan"`
 - [ ] Create `organizer/dedup_engine.py` module

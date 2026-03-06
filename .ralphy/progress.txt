@@ -2909,3 +2909,13 @@ Task completed successfully.
   - TestDNARegistryWithLLM: LLM integration, model router integration
 - All 57 tests pass, linting passes
 - Task "Create organizer/file_dna.py module" marked complete in PRD
+
+## 2026-03-05
+- Verified Phase 13 Task 2 'Wire DNA registration into agent cycle' was already implemented
+  - After inbox moves: Lines 801-815 in continuous_agent.py register DNA for successfully executed inbox files
+  - After consolidation: Lines 717-723 register DNA for consolidated files via _register_files_from_move_results()
+  - During full scan: Lines 281-348 _scan_and_register_new_files() with origin='scan'
+  - Config: dna_registration_enabled, dna_scan_on_cycle, dna_max_scan_files settings in ContinuousAgentConfig
+- All 11 DNA-related tests in test_continuous_agent.py pass
+- All 85 tests in test_continuous_agent.py + test_file_dna.py pass
+- Task 'Wire DNA registration into agent cycle' marked complete in PRD.md
