@@ -703,7 +703,7 @@ A web-based dashboard that:
   - Latency percentiles per model tier (p50, p95, p99)
   - Escalation rate: how often T1 needs to escalate to T2
   - Cost tracking: if cloud models are enabled, track usage and estimated cost
-- [ ] Add prompt management UI (stretch)
+- [x] Add prompt management UI (stretch)
   - View and edit prompt templates from the dashboard
   - Test a prompt against a sample file and see the response
   - Prompt version history
