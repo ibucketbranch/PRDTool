@@ -89,3 +89,5 @@ export { Tooltip, HelpTooltip, HELP_TEXT } from "./Tooltip";
 export type { TooltipProps, HelpTooltipProps } from "./Tooltip";
 export { FileDNAResultCard } from "./FileDNAResultCard";
 export type { FileDNAResult } from "./FileDNAResultCard";
+export { GlobalSearchBar } from "./GlobalSearchBar";
+export { DashboardHeader } from "./DashboardHeader";

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { DashboardHeader } from "@/components";
 
 export const metadata: Metadata = {
   title: {
@@ -23,6 +24,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-white text-neutral-800 min-h-screen antialiased">
+        <DashboardHeader />
         {children}
       </body>
     </html>

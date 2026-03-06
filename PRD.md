@@ -759,7 +759,7 @@ A web-based dashboard that:
 - [x] Add pagination to Search page results (`dashboard/app/search/page.tsx`)
   - Replace hard cap of 50 results with paginated results (20 per page)
   - Add "Load more" or page navigation
-- [ ] Add global search bar to dashboard layout
+- [x] Add global search bar to dashboard layout
   - Single search input in the header/sidebar that queries documents and file DNA
   - Results grouped by source (Documents, File DNA)
   - Navigates to full search page for expanded results
