@@ -12,14 +12,23 @@ from __future__ import annotations
 import json
 import fnmatch
 import re
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# Canonical root folders that should stay at iCloud root (per taxonomy)
+CANONICAL_ROOTS = frozenset({
+    "Family Bin", "Finances Bin", "Legal Bin", "Personal Bin",
+    "Work Bin", "VA", "Archive", "Needs-Review", "In-Box",
+    "Desktop", "Documents",
+})
+
 from organizer.consolidation_planner import ConsolidationPlan, ConsolidationPlanner
 from organizer.dry_run_validator import validate_dry_run
+from organizer.file_dna import DNARegistry
 from organizer.file_operations import execute_consolidation_plan
 from organizer.inbox_processor import InboxProcessor, InboxRouting
 from organizer.scatter_detector import ScatterDetector, ScatterViolation
@@ -55,6 +64,7 @@ class ContinuousAgentConfig:
     empty_folder_policy_file: str = ".organizer/agent/empty_folder_policy.json"
     canonical_registry_file: str = ""
     root_taxonomy_file: str = ""
+    root_strays_enabled: bool = True
     inbox_enabled: bool = True
     inbox_folder_name: str = "In-Box"
     inbox_min_confidence: float = 0.85
@@ -68,6 +78,14 @@ class ContinuousAgentConfig:
     dry_run_mode: bool = False
     dry_run_task_id: str = ""
     prd_task_status_file: str = ".organizer/agent/prd_task_status.json"
+    # DNA registry settings
+    dna_registry_file: str = ".organizer/agent/file_dna.json"
+    dna_registration_enabled: bool = True
+    dna_scan_on_cycle: bool = True
+    dna_max_scan_files: int = 100
+    # Dedup engine
+    dedup_enabled: bool = True
+    dedup_max_files: int = 10_000
 
     @classmethod
     def load(cls, path: str | Path) -> "ContinuousAgentConfig":
@@ -106,6 +124,8 @@ class ContinuousAgentConfig:
             self.db_path = str(Path(self.db_path).resolve())
         if self.prd_task_status_file:
             self.prd_task_status_file = str(Path(self.prd_task_status_file).resolve())
+        if self.dna_registry_file:
+            self.dna_registry_file = str(Path(self.dna_registry_file).resolve())
 
 
 PROJECT_VERSION_TOKENS = {
@@ -143,6 +163,8 @@ class ContinuousOrganizerAgent:
         self.config = config
         self.config.resolve_paths()
         self._ensure_directories()
+        self._dna_registry: DNARegistry | None = None
+        self._init_dna_registry()
 
     def _ensure_directories(self) -> None:
         Path(self.config.queue_dir).mkdir(parents=True, exist_ok=True)
@@ -155,6 +177,175 @@ class ContinuousOrganizerAgent:
         Path(self.config.empty_folder_policy_file).parent.mkdir(
             parents=True, exist_ok=True
         )
+        if self.config.dna_registry_file:
+            Path(self.config.dna_registry_file).parent.mkdir(
+                parents=True, exist_ok=True
+            )
+
+    def _init_dna_registry(self) -> None:
+        """Initialize the DNA registry with optional LLM support."""
+        if not self.config.dna_registration_enabled:
+            return
+
+        llm_client = None
+        model_router = None
+        prompt_registry = None
+
+        try:
+            from organizer.llm_client import LLMClient
+            from organizer.model_router import ModelRouter
+            from organizer.prompt_registry import PromptRegistry
+
+            llm_client = LLMClient()
+            model_router = ModelRouter(llm_client)
+            prompt_registry = PromptRegistry()
+        except Exception:
+            # LLM not available, will use keyword fallback for tag extraction
+            pass
+
+        self._dna_registry = DNARegistry(
+            registry_path=self.config.dna_registry_file,
+            llm_client=llm_client,
+            model_router=model_router,
+            prompt_registry=prompt_registry,
+            use_llm=llm_client is not None,
+        )
+
+    def _register_file_dna(
+        self, file_path: str, origin: str, destination: str = ""
+    ) -> None:
+        """Register a file's DNA after a successful move.
+
+        Args:
+            file_path: Path to the file to register.
+            origin: How the file was processed ("inbox", "consolidation", "scan").
+            destination: Optional destination path if the file was moved.
+        """
+        if self._dna_registry is None:
+            return
+
+        try:
+            path = Path(file_path)
+            if not path.exists() or not path.is_file():
+                return
+
+            self._dna_registry.register_file(file_path, origin=origin)
+            if destination:
+                self._dna_registry.update_routed_to(file_path, destination)
+        except Exception:
+            # DNA registration is non-blocking; don't fail the cycle
+            pass
+
+    def _register_files_from_move_results(
+        self,
+        file_results: list,
+        origin: str,
+    ) -> dict[str, Any]:
+        """Register DNA for files from move operation results.
+
+        Args:
+            file_results: List of FileMoveResult or similar objects.
+            origin: Origin type for DNA registration.
+
+        Returns:
+            Summary of DNA registration results.
+        """
+        registered = 0
+        skipped = 0
+
+        for result in file_results:
+            # Handle both FileMoveResult and FolderMoveResult
+            if hasattr(result, "file_results"):
+                # FolderMoveResult - recursively process
+                sub_summary = self._register_files_from_move_results(
+                    result.file_results, origin
+                )
+                registered += sub_summary["registered"]
+                skipped += sub_summary["skipped"]
+            elif hasattr(result, "target_path") and hasattr(result, "status"):
+                # FileMoveResult
+                if result.status.value == "success":
+                    self._register_file_dna(
+                        result.target_path,
+                        origin=origin,
+                        destination=result.target_path,
+                    )
+                    registered += 1
+                else:
+                    skipped += 1
+            else:
+                skipped += 1
+
+        return {"registered": registered, "skipped": skipped}
+
+    def _scan_and_register_new_files(self, cycle_id: str) -> dict[str, Any]:
+        """Scan for new files and register their DNA.
+
+        During a full scan, discovers files not yet in the DNA registry
+        and registers them with origin="scan".
+
+        Args:
+            cycle_id: Current cycle identifier for logging.
+
+        Returns:
+            Summary of scan registration results.
+        """
+        if self._dna_registry is None or not self.config.dna_scan_on_cycle:
+            return {
+                "enabled": False,
+                "scanned": 0,
+                "registered": 0,
+                "already_known": 0,
+            }
+
+        base = Path(self.config.base_path)
+        if not base.exists() or not base.is_dir():
+            return {
+                "enabled": True,
+                "scanned": 0,
+                "registered": 0,
+                "already_known": 0,
+            }
+
+        scanned = 0
+        registered = 0
+        already_known = 0
+
+        # Walk the base path and register new files
+        for file_path in base.rglob("*"):
+            if scanned >= self.config.dna_max_scan_files:
+                break
+
+            if not file_path.is_file():
+                continue
+
+            # Skip hidden files and directories
+            if any(part.startswith(".") for part in file_path.parts):
+                continue
+
+            scanned += 1
+            str_path = str(file_path.resolve())
+
+            # Check if already registered
+            existing = self._dna_registry.get_by_path(str_path)
+            if existing is not None:
+                already_known += 1
+                continue
+
+            # Register new file
+            try:
+                self._dna_registry.register_file(str_path, origin="scan")
+                registered += 1
+            except Exception:
+                # Non-blocking; continue with next file
+                pass
+
+        return {
+            "enabled": True,
+            "scanned": scanned,
+            "registered": registered,
+            "already_known": already_known,
+        }
 
     def run_forever(self, max_cycles: int | None = None) -> None:
         """Run cycles continuously until interrupted or max_cycles reached."""
@@ -185,6 +376,9 @@ class ContinuousOrganizerAgent:
         proposed_actions = self._build_proposed_actions(plan, cycle_id)
         empty_folder_summary = self._evaluate_empty_folders(cycle_id)
         proposed_actions.extend(empty_folder_summary["actions"])
+
+        root_stray_summary, root_stray_actions = self._process_root_strays(cycle_id)
+        proposed_actions.extend(root_stray_actions)
 
         inbox_summary, inbox_actions = self._process_inbox(cycle_id)
         proposed_actions.extend(inbox_actions)
@@ -221,11 +415,47 @@ class ContinuousOrganizerAgent:
             "errors": [],
         }
 
+        dna_summary: dict[str, Any] = {
+            "enabled": self.config.dna_registration_enabled,
+            "scan_enabled": self.config.dna_scan_on_cycle,
+            "scanned": 0,
+            "registered": 0,
+            "already_known": 0,
+            "inbox_registered": 0,
+            "consolidation_registered": 0,
+        }
+
         if self.config.dry_run_mode:
             # In dry-run mode: validate proposals without executing
             dry_run_summary = self._validate_dry_run(proposed_actions, plan, cycle_id)
         elif self.config.auto_execute:
-            execution_summary = self._execute_high_confidence_groups(plan)
+            # Root strays first (move root folders into bins)
+            root_stray_result = self._execute_root_strays(proposed_actions)
+            # Then consolidation
+            exec_result = self._execute_high_confidence_groups(plan)
+            execution_summary.update(exec_result)
+            execution_summary["root_strays_moved"] = root_stray_result["moved"]
+            execution_summary["root_strays_failed"] = root_stray_result["failed"]
+            # Update DNA summary with consolidation registrations
+            dna_summary["consolidation_registered"] = exec_result.get(
+                "dna_registered", 0
+            )
+
+        # DNA scan for new files (runs after execution to catch moved files)
+        if self.config.dna_registration_enabled and self.config.dna_scan_on_cycle:
+            scan_result = self._scan_and_register_new_files(cycle_id)
+            dna_summary["scanned"] = scan_result["scanned"]
+            dna_summary["registered"] = scan_result["registered"]
+            dna_summary["already_known"] = scan_result["already_known"]
+
+        # Update DNA summary with inbox registrations (set in _process_inbox)
+        dna_summary["inbox_registered"] = inbox_summary.get("dna_registered", 0)
+
+        # Dedup scan (optional)
+        if self.config.dedup_enabled:
+            dedup_summary = self._run_dedup_scan(cycle_id)
+        else:
+            dedup_summary = {"enabled": False, "groups_found": 0, "wasted_bytes": 0}
 
         cycle_summary = {
             "cycle_id": cycle_id,
@@ -254,9 +484,12 @@ class ContinuousOrganizerAgent:
                 "review": empty_folder_summary["review_count"],
                 "prune": empty_folder_summary["prune_count"],
             },
+            "root_strays": root_stray_summary,
             "inbox": inbox_summary,
             "scatter": scatter_summary,
             "dry_run": dry_run_summary,
+            "dna": dna_summary,
+            "dedup": dedup_summary,
             "finished_at": _now_iso(),
         }
 
@@ -468,6 +701,7 @@ class ContinuousOrganizerAgent:
                 "moved_files": 0,
                 "failed_files": 0,
                 "status": "no_eligible_groups",
+                "dna_registered": 0,
             }
 
         execution_plan = ConsolidationPlan(
@@ -478,12 +712,23 @@ class ContinuousOrganizerAgent:
             db_path=plan.db_path,
         )
         result = execute_consolidation_plan(execution_plan)
+
+        # Register DNA for successfully moved files
+        dna_registered = 0
+        if self._dna_registry is not None:
+            for group_result in result.group_results:
+                dna_result = self._register_files_from_move_results(
+                    group_result.folder_results, origin="consolidation"
+                )
+                dna_registered += dna_result["registered"]
+
         return {
             "auto_execute_enabled": True,
             "executed_group_count": len(selected),
             "moved_files": result.total_files_moved,
             "failed_files": result.total_files_failed,
             "status": result.status.value,
+            "dna_registered": dna_registered,
         }
 
     def _inbox_routing_to_action(
@@ -521,6 +766,7 @@ class ContinuousOrganizerAgent:
                     "errors": 0,
                     "queue_count": 0,
                     "auto_executed_count": 0,
+                    "dna_registered": 0,
                     "files": [],
                 },
                 [],
@@ -541,6 +787,7 @@ class ContinuousOrganizerAgent:
         ]
         queue_routings: list[InboxRouting] = []
 
+        dna_registered = 0
         if self.config.auto_execute:
             for r in result.routings:
                 if r not in high_confidence:
@@ -551,6 +798,21 @@ class ContinuousOrganizerAgent:
             auto_executed_count = sum(
                 1 for r in result.routings if r.status == "executed"
             )
+            # Register DNA for successfully executed inbox moves
+            if self._dna_registry is not None:
+                base = Path(self.config.base_path)
+                for r in result.routings:
+                    if r.status == "executed":
+                        # Build the destination file path
+                        dest_dir = base / r.destination_bin
+                        dest_file = dest_dir / r.filename
+                        if dest_file.exists():
+                            self._register_file_dna(
+                                str(dest_file),
+                                origin="inbox",
+                                destination=str(dest_file),
+                            )
+                            dna_registered += 1
         else:
             queue_routings = [r for r in result.routings if r.destination_bin]
             auto_executed_count = 0
@@ -568,6 +830,7 @@ class ContinuousOrganizerAgent:
                 "errors": result.errors,
                 "queue_count": len(actions),
                 "auto_executed_count": auto_executed_count,
+                "dna_registered": dna_registered,
                 "files": [
                     {
                         "filename": r.filename,
@@ -581,6 +844,28 @@ class ContinuousOrganizerAgent:
             },
             actions,
         )
+
+    def _run_dedup_scan(self, cycle_id: str) -> dict[str, Any]:
+        """Run dedup scan on base path. Returns summary."""
+        try:
+            from organizer.dedup_engine import DedupEngine
+
+            engine = DedupEngine(self.config.base_path)
+            engine.scan(max_files=self.config.dedup_max_files)
+            groups = engine.get_groups()
+            wasted = engine.report_wasted_storage()
+            return {
+                "enabled": True,
+                "groups_found": len(groups),
+                "wasted_bytes": wasted,
+            }
+        except Exception as e:
+            return {
+                "enabled": True,
+                "groups_found": 0,
+                "wasted_bytes": 0,
+                "error": str(e),
+            }
 
     def _scatter_violation_to_action(
         self, violation: ScatterViolation, cycle_id: str, action_index: int
@@ -958,6 +1243,130 @@ class ContinuousOrganizerAgent:
             "review_count": review_count,
             "prune_count": prune_count,
         }
+
+    def _process_root_strays(self, cycle_id: str) -> tuple[dict[str, Any], list[ProposedAction]]:
+        """Process root-level folders: mapped -> canonical bin, unmapped -> Needs-Review.
+
+        Phase 1: Registry mapping -> move to mapped bin (high confidence).
+        Phase 2: No mapping -> move to Needs-Review (queue for review, safe default).
+        """
+        if not self.config.root_strays_enabled:
+            return {"mapped_count": 0, "unmapped_count": 0, "total_proposed": 0}, []
+        base = Path(self.config.base_path)
+        if not base.exists() or not base.is_dir():
+            return {"mapped_count": 0, "unmapped_count": 0}, []
+
+        # Load registry mappings
+        mappings: dict[str, str] = {}
+        if self.config.canonical_registry_file:
+            try:
+                data = json.loads(
+                    Path(self.config.canonical_registry_file).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                mappings = data.get("mappings", {})
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                pass
+
+        actions: list[ProposedAction] = []
+        mapped_count = 0
+        unmapped_count = 0
+        action_counter = 0
+
+        for item in base.iterdir():
+            if not item.is_dir():
+                continue
+            if item.name.startswith("."):
+                continue
+            if item.is_symlink():
+                continue
+            if item.name in CANONICAL_ROOTS:
+                continue
+
+            source_str = str(item.resolve())
+            target_bin: str
+            confidence: float
+            action_type: str
+            reasoning: list[str]
+
+            if item.name in mappings:
+                dest = mappings[item.name]
+                if dest == "__KEEP_AT_ROOT__":
+                    continue
+                target_full = str((base / dest).resolve())
+                target_bin = dest
+                confidence = 0.95
+                action_type = "root_stray_move"
+                reasoning = [f"registry_mapping={dest}"]
+                mapped_count += 1
+            else:
+                target_full = str((base / "Needs-Review" / item.name).resolve())
+                target_bin = f"Needs-Review/{item.name}"
+                confidence = 0.9
+                action_type = "root_stray_to_review"
+                reasoning = ["no_registry_mapping", "queued_for_review"]
+                unmapped_count += 1
+
+            action_counter += 1
+            actions.append(
+                ProposedAction(
+                    action_id=f"{cycle_id}:root_stray:{action_counter}",
+                    created_at=_now_iso(),
+                    source_folder=source_str,
+                    target_folder=target_full,
+                    group_name="root-stray",
+                    confidence=confidence,
+                    reasoning=reasoning,
+                    action_type=action_type,
+                )
+            )
+            if len(actions) >= self.config.max_actions_per_cycle:
+                break
+
+        summary = {
+            "mapped_count": mapped_count,
+            "unmapped_count": unmapped_count,
+            "total_proposed": len(actions),
+        }
+        return summary, actions
+
+    def _execute_root_strays(self, proposed_actions: list[ProposedAction]) -> dict[str, Any]:
+        """Execute root stray moves when auto_execute is on."""
+        moved = 0
+        failed = 0
+
+        for action in proposed_actions:
+            if action.action_type not in ("root_stray_move", "root_stray_to_review"):
+                continue
+            # Mapped: require min_auto_confidence. Unmapped (Needs-Review): 0.85
+            min_conf = (
+                self.config.min_auto_confidence
+                if action.action_type == "root_stray_move"
+                else 0.85
+            )
+            if action.confidence < min_conf:
+                continue
+
+            src = Path(action.source_folder)
+            dst = Path(action.target_folder)
+
+            if not src.exists() or not src.is_dir():
+                failed += 1
+                continue
+            if dst.exists():
+                # Target exists: skip to avoid overwrite (user can merge manually)
+                failed += 1
+                continue
+
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+                moved += 1
+            except OSError:
+                failed += 1
+
+        return {"moved": moved, "failed": failed}
 
     def _is_empty_dir(self, directory: Path) -> bool:
         try:

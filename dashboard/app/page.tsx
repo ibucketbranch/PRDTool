@@ -28,6 +28,16 @@ export default function Home() {
           href="/empty-folders"
         />
         <DashboardCard
+          title="File Health"
+          description="File health score, duplicates, and storage savings"
+          href="/health"
+        />
+        <DashboardCard
+          title="Duplicate Files"
+          description="Scan for exact duplicate files by hash"
+          href="/dedup"
+        />
+        <DashboardCard
           title="Inbox Processor"
           description="Process new files from In-Box folder"
           href="/inbox"

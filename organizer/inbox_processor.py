@@ -208,6 +208,8 @@ class InboxProcessor:
         use_llm: bool = True,
         ab_comparison_enabled: bool = False,
         comparison_logs_dir: str = "",
+        routing_history_path: str = "",
+        learned_overrides_path: str = "",
     ):
         """Initialize the InboxProcessor.
 
@@ -224,9 +226,20 @@ class InboxProcessor:
                                    and log comparison results.
             comparison_logs_dir: Directory for A/B comparison logs.
                                  Defaults to .organizer/agent/logs if not specified.
+            routing_history_path: Path to routing_history.json. Defaults to base_path/.organizer/agent/.
+            learned_overrides_path: Path to learned_overrides.json. Defaults to base_path/.organizer/agent/.
         """
         self.base_path = Path(base_path)
         self.inbox_dir = self.base_path / inbox_name
+        agent_dir = self.base_path / ".organizer" / "agent"
+        self._routing_history_path = (
+            Path(routing_history_path) if routing_history_path else agent_dir / "routing_history.json"
+        )
+        self._learned_overrides_path = (
+            Path(learned_overrides_path) if learned_overrides_path else agent_dir / "learned_overrides.json"
+        )
+        self._routing_history = None
+        self._override_registry = None
         self._extra_rules: list[tuple[list[str], str]] = []
         self._llm_client = llm_client
         self._model_router = model_router
@@ -253,6 +266,20 @@ class InboxProcessor:
             self._load_registry_rules(canonical_registry_path)
         if taxonomy_path:
             self._load_taxonomy_rules(taxonomy_path)
+
+    def _get_routing_history(self):
+        """Lazy-load routing history."""
+        if self._routing_history is None:
+            from organizer.routing_history import RoutingHistory
+            self._routing_history = RoutingHistory(self._routing_history_path)
+        return self._routing_history
+
+    def _get_override_registry(self):
+        """Lazy-load learned overrides."""
+        if self._override_registry is None:
+            from organizer.learned_overrides import OverrideRegistry
+            self._override_registry = OverrideRegistry(self._learned_overrides_path)
+        return self._override_registry
 
     def _load_registry_rules(self, registry_path: str) -> None:
         """Build supplemental keyword rules from the canonical registry."""
@@ -318,7 +345,10 @@ class InboxProcessor:
         return result
 
     def execute(self, result: InboxCycleResult) -> InboxCycleResult:
-        """Execute all proposed routings (move files)."""
+        """Execute all proposed routings (move files). Records to routing history."""
+        from organizer.routing_history import RoutingRecord
+
+        history = self._get_routing_history()
         for routing in result.routings:
             if routing.status != "proposed" or not routing.destination_bin:
                 continue
@@ -333,10 +363,26 @@ class InboxProcessor:
             try:
                 shutil.move(str(src), str(dest))
                 routing.status = "executed"
+                history.record(RoutingRecord(
+                    filename=routing.filename,
+                    source_path=routing.source_path,
+                    destination_bin=routing.destination_bin,
+                    confidence=routing.confidence,
+                    matched_keywords=routing.matched_keywords,
+                    status="executed",
+                ))
             except OSError as exc:
                 routing.status = "error"
                 routing.error = str(exc)
                 result.errors += 1
+                history.record(RoutingRecord(
+                    filename=routing.filename,
+                    source_path=routing.source_path,
+                    destination_bin=routing.destination_bin,
+                    confidence=routing.confidence,
+                    matched_keywords=routing.matched_keywords,
+                    status="error",
+                ))
         return result
 
     def _extract_date_signals(self, filepath: Path) -> dict[str, Any]:
@@ -451,9 +497,11 @@ class InboxProcessor:
         """Classify a file using LLM-first strategy with keyword fallback.
 
         Classification strategy:
-        1. Try LLM classification (T1 Fast for speed)
-        2. If LLM confidence < 0.75, escalate to T2 Smart
-        3. If LLM unavailable or fails, fall back to keyword rules
+        0. Check learned overrides first (user corrections take priority)
+        1. Check for correction: file was previously routed, now back in In-Box -> Needs-Review
+        2. Try LLM classification (T1 Fast for speed)
+        3. If LLM confidence < 0.75, escalate to T2 Smart
+        4. If LLM unavailable or fails, fall back to keyword rules
 
         When A/B comparison mode is enabled, both LLM and keyword classification
         are run for every file, and results are logged for analysis.
@@ -465,6 +513,33 @@ class InboxProcessor:
             InboxRouting with classification result and metadata.
         """
         date_signals = self._extract_date_signals(filepath)
+
+        # 0. Learned overrides take priority over built-in rules
+        override_reg = self._get_override_registry()
+        override = override_reg.find_match(filepath.name)
+        if override:
+            return InboxRouting(
+                filename=filepath.name,
+                source_path=str(filepath),
+                destination_bin=override.correct_bin,
+                confidence=0.95,
+                matched_keywords=[f"override:{override.pattern}"],
+                date_signals=date_signals,
+                used_keyword_fallback=True,
+            )
+
+        # 1. Correction detection: file was previously routed, now back in In-Box
+        history = self._get_routing_history()
+        if history.is_correction(filepath.name):
+            return InboxRouting(
+                filename=filepath.name,
+                source_path=str(filepath),
+                destination_bin="Needs-Review",
+                confidence=0.95,
+                matched_keywords=["correction_detected"],
+                date_signals=date_signals,
+                used_keyword_fallback=True,
+            )
 
         # Extract content preview for LLM
         pdf_text = ""

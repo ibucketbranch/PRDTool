@@ -35,12 +35,34 @@ interface ProcessResult {
   error?: string;
 }
 
+interface RoutingRecord {
+  filename: string;
+  destination_bin: string;
+  routed_at: string;
+  confidence: number;
+  status: string;
+}
+
+interface LearnedOverride {
+  pattern: string;
+  correct_bin: string;
+  hit_count: number;
+  created_at: string;
+}
+
+type TabId = "status" | "activity" | "overrides";
+
 export default function InboxPage() {
   const [status, setStatus] = useState<InboxStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [dryRun, setDryRun] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabId>("status");
+  const [history, setHistory] = useState<RoutingRecord[]>([]);
+  const [overrides, setOverrides] = useState<LearnedOverride[]>([]);
+  const [correctModal, setCorrectModal] = useState<{ filename: string; wrong_bin: string } | null>(null);
+  const [correctBin, setCorrectBin] = useState("");
 
   // Load inbox status
   const loadStatus = async () => {
@@ -60,9 +82,75 @@ export default function InboxPage() {
     }
   };
 
+  const loadHistory = async () => {
+    try {
+      const res = await fetch("/api/inbox-process/history?limit=50");
+      const data = await res.json();
+      if (data.success) setHistory(data.history || []);
+    } catch {
+      setHistory([]);
+    }
+  };
+
+  const loadOverrides = async () => {
+    try {
+      const res = await fetch("/api/inbox-process/overrides");
+      const data = await res.json();
+      if (data.success) setOverrides(data.overrides || []);
+    } catch {
+      setOverrides([]);
+    }
+  };
+
   useEffect(() => {
     loadStatus();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "activity") loadHistory();
+    if (activeTab === "overrides") loadOverrides();
+  }, [activeTab]);
+
+  const handleCorrect = async () => {
+    if (!correctModal || !correctBin.trim()) return;
+    try {
+      const res = await fetch("/api/inbox-process/correct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: correctModal.filename,
+          wrong_bin: correctModal.wrong_bin,
+          correct_bin: correctBin.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCorrectModal(null);
+        setCorrectBin("");
+        loadOverrides();
+        loadHistory();
+      } else {
+        setResult({ success: false, message: data.message || "Failed to record correction" });
+      }
+    } catch (e) {
+      setResult({ success: false, message: "Failed to record correction", error: String(e) });
+    }
+  };
+
+  const handleDeleteOverride = async (pattern: string) => {
+    if (!confirm(`Remove override for "${pattern}"?`)) return;
+    try {
+      const res = await fetch("/api/inbox-process/overrides", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pattern }),
+      });
+      const data = await res.json();
+      if (data.success) loadOverrides();
+    } catch {
+      setResult({ success: false, message: "Failed to remove override" });
+    }
+  };
 
   // Process inbox
   const handleProcess = async (action: "process" | "finalize" | "retry-errors") => {
@@ -140,8 +228,27 @@ export default function InboxPage() {
         Process new files from your In-Box folder. Files are moved to staging first, then finalized to their permanent location.
       </p>
 
-      {/* Status Card */}
-      {status && status.success && (
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6 border-b border-neutral-200">
+        {(["status", "activity", "overrides"] as TabId[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === tab
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-neutral-600 hover:text-neutral-900"
+            }`}
+          >
+            {tab === "status" && "Status"}
+            {tab === "activity" && "Recent Activity"}
+            {tab === "overrides" && "Learned Overrides"}
+          </button>
+        ))}
+      </div>
+
+      {/* Status Tab */}
+      {activeTab === "status" && status && status.success && (
         <div className="bg-white rounded-lg border border-neutral-200 p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Inbox Status</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -179,7 +286,130 @@ export default function InboxPage() {
         </div>
       )}
 
-      {/* Controls */}
+      {/* Recent Activity Tab */}
+      {activeTab === "activity" && (
+        <div className="bg-white rounded-lg border border-neutral-200 p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">Recent Routing Activity</h2>
+          {history.length === 0 ? (
+            <p className="text-neutral-600">No routing history yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Filename</th>
+                    <th className="text-left py-2">Destination</th>
+                    <th className="text-left py-2">Confidence</th>
+                    <th className="text-left py-2">Date</th>
+                    <th className="text-left py-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((r, i) => (
+                    <tr key={i} className="border-b border-neutral-100">
+                      <td className="py-2">{r.filename}</td>
+                      <td className="py-2">{r.destination_bin}</td>
+                      <td className="py-2">{(r.confidence * 100).toFixed(0)}%</td>
+                      <td className="py-2 text-neutral-600">{r.routed_at?.slice(0, 19)}</td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => setCorrectModal({ filename: r.filename, wrong_bin: r.destination_bin })}
+                          className="text-blue-600 hover:underline text-xs"
+                        >
+                          Correct
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Learned Overrides Tab */}
+      {activeTab === "overrides" && (
+        <div className="bg-white rounded-lg border border-neutral-200 p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">Learned Overrides</h2>
+          <p className="text-neutral-600 text-sm mb-4">
+            User corrections that override default routing. These take priority over built-in rules.
+          </p>
+          {overrides.length === 0 ? (
+            <p className="text-neutral-600">No overrides yet. Use &quot;Correct&quot; on a routing to add one.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Pattern</th>
+                    <th className="text-left py-2">Correct Bin</th>
+                    <th className="text-left py-2">Hits</th>
+                    <th className="text-left py-2">Created</th>
+                    <th className="text-left py-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overrides.map((o, i) => (
+                    <tr key={i} className="border-b border-neutral-100">
+                      <td className="py-2">{o.pattern}</td>
+                      <td className="py-2">{o.correct_bin}</td>
+                      <td className="py-2">{o.hit_count}</td>
+                      <td className="py-2 text-neutral-600">{o.created_at?.slice(0, 10)}</td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => handleDeleteOverride(o.pattern)}
+                          className="text-red-600 hover:underline text-xs"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Correct Modal */}
+      {correctModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-2">Correct Routing</h3>
+            <p className="text-sm text-neutral-600 mb-4">
+              File <strong>{correctModal.filename}</strong> was routed to <strong>{correctModal.wrong_bin}</strong>.
+              Enter the correct destination:
+            </p>
+            <input
+              type="text"
+              value={correctBin}
+              onChange={(e) => setCorrectBin(e.target.value)}
+              placeholder="e.g. Finances Bin/Taxes"
+              className="w-full border border-neutral-300 rounded px-3 py-2 mb-4"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setCorrectModal(null); setCorrectBin(""); }}
+                className="px-4 py-2 border border-neutral-300 rounded hover:bg-neutral-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCorrect}
+                disabled={!correctBin.trim()}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                Save Correction
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Controls - only on status tab */}
+      {activeTab === "status" && (
       <div className="bg-white rounded-lg border border-neutral-200 p-6 mb-6">
         <h2 className="text-xl font-semibold mb-4">Process Inbox</h2>
         
@@ -262,6 +492,7 @@ export default function InboxPage() {
           <strong>Step 2:</strong> Finalize moves files from Processed to their permanent organized location.
         </p>
       </div>
+      )}
 
       {/* Results */}
       {result && (

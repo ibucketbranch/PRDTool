@@ -103,6 +103,61 @@ def test_empty_folder_policy_keeps_va_placeholders(tmp_path: Path) -> None:
     assert summary["prune_count"] == 0
 
 
+def test_process_root_strays_mapped_and_unmapped(tmp_path: Path) -> None:
+    """Root strays: mapped -> canonical bin, unmapped -> Needs-Review."""
+    base = tmp_path / "root"
+    (base / "Work Bin").mkdir(parents=True)
+    (base / "Needs-Review").mkdir(parents=True)
+    (base / "Apple").mkdir(parents=True)
+    (base / "UnknownFolder").mkdir(parents=True)
+
+    registry_path = tmp_path / "canonical_registry.json"
+    registry_path.write_text(
+        json.dumps({"mappings": {"Apple": "Work Bin/Apple"}}, indent=2),
+        encoding="utf-8",
+    )
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        canonical_registry_file=str(registry_path),
+        root_strays_enabled=True,
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    summary, actions = agent._process_root_strays("cycle123")
+
+    assert summary["mapped_count"] == 1
+    assert summary["unmapped_count"] == 1
+    assert len(actions) == 2
+
+    mapped = [a for a in actions if a.action_type == "root_stray_move"]
+    unmapped = [a for a in actions if a.action_type == "root_stray_to_review"]
+    assert len(mapped) == 1
+    assert len(unmapped) == 1
+    assert "Apple" in mapped[0].source_folder
+    assert "Work Bin/Apple" in mapped[0].target_folder
+    assert "Needs-Review" in unmapped[0].target_folder
+
+
+def test_process_root_strays_disabled(tmp_path: Path) -> None:
+    """When root_strays_enabled=False, no actions produced."""
+    base = tmp_path / "root"
+    (base / "StrayFolder").mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        root_strays_enabled=False,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    summary, actions = agent._process_root_strays("cycle123")
+
+    assert summary["mapped_count"] == 0
+    assert summary["unmapped_count"] == 0
+    assert len(actions) == 0
+
+
 def test_inbox_proposals_appear_in_queue(tmp_path: Path) -> None:
     """Inbox routings should be converted to ProposedActions and appear in the queue."""
     base = tmp_path / "root"
@@ -545,3 +600,290 @@ def test_scatter_violation_with_keyword_fallback(tmp_path: Path) -> None:
     assert any("method=keyword_fallback" in r for r in reasoning)
     # Should not have model= since no model was used
     assert not any("model=" in r for r in reasoning)
+
+
+# =====================================================================
+# DNA REGISTRATION TESTS (Phase 13)
+# =====================================================================
+
+
+def test_dna_registry_initialized_when_enabled(tmp_path: Path) -> None:
+    """DNA registry should be initialized when dna_registration_enabled is True."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    assert agent._dna_registry is not None
+
+
+def test_dna_registry_not_initialized_when_disabled(tmp_path: Path) -> None:
+    """DNA registry should be None when dna_registration_enabled is False."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registration_enabled=False,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    assert agent._dna_registry is None
+
+
+def test_dna_scan_registers_new_files(tmp_path: Path) -> None:
+    """DNA scan should register files not already in the registry."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create test files
+    (base / "doc1.txt").write_text("Document 1 content", encoding="utf-8")
+    (base / "doc2.txt").write_text("Document 2 content", encoding="utf-8")
+    (base / "subdir").mkdir()
+    (base / "subdir" / "doc3.txt").write_text("Document 3 content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+        dna_max_scan_files=100,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._scan_and_register_new_files("cycle123")
+
+    assert result["enabled"] is True
+    assert result["scanned"] == 3
+    assert result["registered"] == 3
+    assert result["already_known"] == 0
+
+
+def test_dna_scan_skips_already_registered_files(tmp_path: Path) -> None:
+    """DNA scan should not re-register files already in the registry."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create test file
+    test_file = base / "doc1.txt"
+    test_file.write_text("Document 1 content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # First scan - should register
+    result1 = agent._scan_and_register_new_files("cycle1")
+    assert result1["registered"] == 1
+    assert result1["already_known"] == 0
+
+    # Second scan - should skip (already known)
+    result2 = agent._scan_and_register_new_files("cycle2")
+    assert result2["registered"] == 0
+    assert result2["already_known"] == 1
+
+
+def test_dna_scan_skips_hidden_files(tmp_path: Path) -> None:
+    """DNA scan should skip hidden files and directories."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create visible file
+    (base / "visible.txt").write_text("visible", encoding="utf-8")
+    # Create hidden file
+    (base / ".hidden.txt").write_text("hidden", encoding="utf-8")
+    # Create file in hidden directory
+    (base / ".hidden_dir").mkdir()
+    (base / ".hidden_dir" / "also_hidden.txt").write_text("also hidden", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._scan_and_register_new_files("cycle123")
+
+    # Only the visible file should be scanned
+    assert result["scanned"] == 1
+    assert result["registered"] == 1
+
+
+def test_dna_scan_respects_max_files_limit(tmp_path: Path) -> None:
+    """DNA scan should respect the max_scan_files limit."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create more files than the limit
+    for i in range(10):
+        (base / f"doc{i}.txt").write_text(f"Document {i}", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+        dna_max_scan_files=5,  # Only scan 5 files
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._scan_and_register_new_files("cycle123")
+
+    # Should stop at the limit
+    assert result["scanned"] == 5
+
+
+def test_dna_scan_disabled_returns_disabled_summary(tmp_path: Path) -> None:
+    """DNA scan should return disabled summary when scan is disabled."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=False,  # Scan disabled
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._scan_and_register_new_files("cycle123")
+
+    assert result["enabled"] is False
+    assert result["scanned"] == 0
+
+
+def test_register_file_dna_handles_nonexistent_file(tmp_path: Path) -> None:
+    """_register_file_dna should handle nonexistent files gracefully."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # This should not raise an exception
+    agent._register_file_dna(str(base / "nonexistent.txt"), origin="test")
+
+    # Registry should still be empty
+    assert agent._dna_registry.get_count() == 0
+
+
+def test_register_file_dna_with_destination(tmp_path: Path) -> None:
+    """_register_file_dna should update routed_to when destination provided."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create test file
+    test_file = base / "doc.txt"
+    test_file.write_text("content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    agent._register_file_dna(
+        str(test_file),
+        origin="inbox",
+        destination="/path/to/destination"
+    )
+
+    dna = agent._dna_registry.get_by_path(str(test_file))
+    assert dna is not None
+    assert dna.origin == "inbox"
+    assert dna.routed_to == "/path/to/destination"
+
+
+def test_cycle_includes_dna_summary(tmp_path: Path) -> None:
+    """Run cycle should include DNA summary in the cycle summary."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create a test file
+    (base / "doc.txt").write_text("content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+        inbox_enabled=False,  # Disable inbox to simplify test
+        scatter_enabled=False,  # Disable scatter to simplify test
+        auto_execute=False,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    summary = agent.run_cycle()
+
+    assert "dna" in summary
+    assert summary["dna"]["enabled"] is True
+    assert summary["dna"]["scan_enabled"] is True
+    assert summary["dna"]["scanned"] >= 1
+    assert summary["dna"]["registered"] >= 0
+
+
+def test_config_dna_paths_resolved(tmp_path: Path) -> None:
+    """Config should resolve DNA registry file path."""
+    config = ContinuousAgentConfig(
+        base_path=".",
+        dna_registry_file=".organizer/agent/file_dna.json",
+    )
+    config.resolve_paths()
+
+    assert Path(config.dna_registry_file).is_absolute()

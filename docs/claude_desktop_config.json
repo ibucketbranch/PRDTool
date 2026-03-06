@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "fileroomba": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "organizer",
+        "--mcp-server"
+      ],
+      "cwd": "/Users/michaelvalderrama/Websites/PRDTool",
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  }
+}

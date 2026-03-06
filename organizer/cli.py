@@ -222,6 +222,11 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--mcp-server",
+        action="store_true",
+        help="Start MCP server on stdio for Claude Desktop / Cursor integration",
+    )
+    parser.add_argument(
         "--dry-run-task-id",
         type=str,
         metavar="TASK_ID",
@@ -274,12 +279,13 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         or args.agent_launchd_uninstall
         or args.agent_launchd_status
     )
-    if not has_standard_action and not has_agent_action:
+    has_mcp_action = args.mcp_server
+    if not has_standard_action and not has_agent_action and not has_mcp_action:
         errors.append(
             "Must specify at least one action: --scan, --plan, --execute, "
             "--agent-init-config, --agent-run, --agent-once, "
             "--agent-launchd-install, --agent-launchd-uninstall, "
-            "or --agent-launchd-status"
+            "--agent-launchd-status, or --mcp-server"
         )
 
     # Check execute-specific requirements
@@ -1097,6 +1103,10 @@ def main(argv: list[str] | None = None) -> int:
     # Run appropriate command(s)
     exit_code = 0
 
+    if args.mcp_server:
+        from organizer.mcp_server import run
+        run()
+        return 0
     if (
         args.agent_init_config
         or args.agent_run

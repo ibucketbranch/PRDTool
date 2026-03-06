@@ -54,52 +54,52 @@ detect this and update its routing rules permanently.
 
 #### Tasks
 
-- [ ] Create `organizer/routing_history.py` module
+- [x] Create `organizer/routing_history.py` module
   - `RoutingRecord` dataclass: filename, source_path, destination_bin, confidence,
     matched_keywords, routed_at timestamp, status (executed/corrected/reverted)
   - `RoutingHistory` class: load/save from `.organizer/agent/routing_history.json`,
     record a routing, query history by filename or destination
   - History file capped at 10,000 entries (FIFO eviction)
 
-- [ ] Create `organizer/learned_overrides.py` module
+- [x] Create `organizer/learned_overrides.py` module
   - `LearnedOverride` dataclass: pattern (keyword or filename fragment), correct_bin,
     source (user_correction/manual), created_at, hit_count
   - `OverrideRegistry` class: load/save from `.organizer/agent/learned_overrides.json`,
     add override, match against filename, merge with routing rules
   - Overrides take priority over built-in `ROUTING_RULES` in `inbox_processor.py`
 
-- [ ] Add correction detection to `organizer/inbox_processor.py`
+- [x] Add correction detection to `organizer/inbox_processor.py`
   - Before routing a file, check `RoutingHistory` for previous routing of same filename
   - If file was previously routed and is back in In-Box: mark as correction, route to
     `Needs-Review` instead of same destination, log the conflict
   - If an override exists for this file pattern: use the override destination
 
-- [ ] Wire `RoutingHistory` recording into `InboxProcessor.execute()`
+- [x] Wire `RoutingHistory` recording into `InboxProcessor.execute()`
   - After each successful move, write a `RoutingRecord` to history
   - After each error, record with status="error"
 
-- [ ] Wire override priority into `InboxProcessor._classify()`
+- [x] Wire override priority into `InboxProcessor._classify()`
   - Check `OverrideRegistry` before `ROUTING_RULES` and `_extra_rules`
   - If override matches, use override destination with confidence 0.95
 
-- [ ] Add `POST /api/inbox-process/correct` API endpoint in dashboard
+- [x] Add `POST /api/inbox-process/correct` API endpoint in dashboard
   - Accepts: `{ filename, wrong_bin, correct_bin }`
   - Creates a `LearnedOverride` entry
   - Returns confirmation with the new override
 
-- [ ] Add correction UI to dashboard inbox page (`dashboard/app/inbox/page.tsx`)
+- [x] Add correction UI to dashboard inbox page (`dashboard/app/inbox/page.tsx`)
   - Show recent routing history (last 50 moves)
   - Each row shows: filename, destination, confidence, timestamp
   - "Correct" button opens modal: select correct destination from taxonomy
   - Submit calls `POST /api/inbox-process/correct`
 
-- [ ] Write tests for routing history module
+- [x] Write tests for routing history module
   - Test: record, query, FIFO eviction at cap
   - Test: correction detection (same file back in inbox)
   - Test: override priority over built-in rules
   - Test file: `tests/test_routing_history.py`
 
-- [ ] Write tests for learned overrides module
+- [x] Write tests for learned overrides module
   - Test: add override, match against filename, hit count increment
   - Test: override takes priority in `InboxProcessor._classify()`
   - Test file: `tests/test_learned_overrides.py`
@@ -112,7 +112,7 @@ relationship search, and the conduit.
 
 #### Tasks
 
-- [ ] Create `organizer/file_dna.py` module
+- [x] Create `organizer/file_dna.py` module
   - `FileDNA` dataclass: file_path, filename, extension, size_bytes, sha256_hash,
     content_summary (first 500 chars extracted text), auto_tags (list of strings),
     origin (inbox/download/email/unknown), first_seen_at, last_seen_at,
@@ -122,38 +122,38 @@ relationship search, and the conduit.
     register a file (compute hash, extract text, generate tags),
     find duplicates by hash, find related by tags, search by keyword
 
-- [ ] Add SHA-256 hashing utility
+- [x] Add SHA-256 hashing utility
   - Function `compute_file_hash(filepath) -> str` in `file_dna.py`
   - Streams file in 8KB chunks to handle large files without memory issues
 
-- [ ] Add auto-tagging from filename and content
+- [x] Add auto-tagging from filename and content
   - Function `extract_tags(filename, content_text) -> list[str]` in `file_dna.py`
   - Extract: year mentions (4-digit numbers 1990-2030), names (from taxonomy
     family_members), document types (tax, receipt, statement, claim), organizations
     (from ROUTING_RULES keywords)
 
-- [ ] Wire DNA registration into `InboxProcessor.execute()`
+- [x] Wire DNA registration into `InboxProcessor.execute()`
   - After each successful move, call `DNARegistry.register(filepath)`
   - Store DNA record with origin="inbox"
 
-- [ ] Wire DNA registration into `ContinuousOrganizerAgent.run_cycle()`
+- [x] Wire DNA registration into `ContinuousOrganizerAgent.run_cycle()`
   - During the consolidation scan, register newly discovered files
   - Store DNA record with origin="scan"
 
-- [ ] Add `GET /api/file-dna` endpoint in dashboard
+- [x] Add `GET /api/file-dna` endpoint in dashboard
   - Query param: `?search=keyword` or `?hash=sha256`
   - Returns matching DNA records with file path, tags, duplicates
 
-- [ ] Add `GET /api/file-dna/duplicates` endpoint in dashboard
+- [x] Add `GET /api/file-dna/duplicates` endpoint in dashboard
   - Returns all files grouped by SHA-256 hash where count > 1
   - Each group shows: hash, file count, total wasted bytes, file paths
 
-- [ ] Add `GET /api/file-dna/stats` endpoint in dashboard
+- [x] Add `GET /api/file-dna/stats` endpoint in dashboard
   - Total files tracked, total duplicates found, total wasted storage,
     organization health score (0-100 based on: % files with DNA,
     % duplicates resolved, % files in correct bins)
 
-- [ ] Write tests for file DNA module
+- [x] Write tests for file DNA module
   - Test: hash computation, tag extraction, duplicate detection
   - Test: register file, find by hash, find by keyword
   - Test file: `tests/test_file_dna.py`
@@ -165,53 +165,53 @@ AI assistant (Claude Desktop, Cursor, custom agents) can query your file intelli
 
 #### Tasks
 
-- [ ] Create `organizer/mcp_server.py` module
+- [x] Create `organizer/mcp_server.py` module
   - Use `mcp` Python SDK (add to `requirements.txt`)
   - Server name: "fileroomba"
   - Transport: stdio (for Claude Desktop / Cursor integration)
 
-- [ ] Implement MCP tool: `classify_file`
+- [x] Implement MCP tool: `classify_file`
   - Input: `filepath: str`, `content_hint: str` (optional)
   - Loads `InboxProcessor`, calls `_classify()` on the file
   - Returns: `{ destination_bin, confidence, matched_keywords }`
 
-- [ ] Implement MCP tool: `scan_inbox`
+- [x] Implement MCP tool: `scan_inbox`
   - No input required (uses configured inbox path)
   - Calls `InboxProcessor.scan()`
   - Returns: `{ total_files, routed, unmatched, files: [...] }`
 
-- [ ] Implement MCP tool: `search_files`
+- [x] Implement MCP tool: `search_files`
   - Input: `query: str`
   - Searches `DNARegistry` by keyword across tags, filename, content_summary
   - Returns: `{ results: [{ filename, path, tags, confidence }] }`
 
-- [ ] Implement MCP tool: `get_file_dna`
+- [x] Implement MCP tool: `get_file_dna`
   - Input: `filepath: str`
   - Returns full DNA record for the file
 
-- [ ] Implement MCP tool: `find_duplicates`
+- [x] Implement MCP tool: `find_duplicates`
   - Input: `filepath: str` (optional -- if omitted, returns all duplicate groups)
   - Returns: `{ groups: [{ hash, files: [...], wasted_bytes }] }`
 
-- [ ] Implement MCP tool: `get_life_context`
+- [x] Implement MCP tool: `get_life_context`
   - Input: `domain: str` (work/finances/legal/health/family/va/education/personal)
   - Queries DNA registry for all files tagged with that domain
   - Returns: structured summary with file counts, recent activity, key entities
 
-- [ ] Implement MCP tool: `record_correction`
+- [x] Implement MCP tool: `record_correction`
   - Input: `{ filename, wrong_bin, correct_bin }`
   - Writes a `LearnedOverride` entry
   - Returns confirmation
 
-- [ ] Add CLI flag `--mcp-server` to `organizer/cli.py`
+- [x] Add CLI flag `--mcp-server` to `organizer/cli.py`
   - Starts the MCP server on stdio
   - Loads config from `.organizer/agent_config.json`
 
-- [ ] Create MCP config file for Claude Desktop integration
+- [x] Create MCP config file for Claude Desktop integration
   - `docs/claude_desktop_config.json` with server path and args
   - Include setup instructions in `docs/ARCHITECTURE.md`
 
-- [ ] Write tests for MCP server tools
+- [x] Write tests for MCP server tools
   - Test: classify_file returns valid classification
   - Test: search_files finds by keyword
   - Test: find_duplicates groups correctly
@@ -224,33 +224,33 @@ wasted storage and optionally consolidate to a single canonical copy.
 
 #### Tasks
 
-- [ ] Create `organizer/dedup_engine.py` module
+- [x] Create `organizer/dedup_engine.py` module
   - `DuplicateGroup` dataclass: sha256_hash, canonical_path, duplicates (list of paths),
     total_wasted_bytes, first_seen_at
   - `DedupEngine` class: scan a directory tree, compute hashes, build groups,
     report wasted storage, optionally consolidate (keep canonical, quarantine dupes)
 
-- [ ] Add filename-based near-duplicate detection
+- [x] Add filename-based near-duplicate detection
   - Function `find_near_duplicates(files) -> list[NearDupGroup]`
   - Detect: `report.pdf` vs `report (1).pdf` vs `report_copy.pdf`
   - Use `fuzzy_matcher.normalize_folder_name()` adapted for filenames
   - Confidence scoring: exact hash match = 1.0, fuzzy name match = 0.7-0.9
 
-- [ ] Wire dedup scan into `ContinuousOrganizerAgent.run_cycle()`
+- [x] Wire dedup scan into `ContinuousOrganizerAgent.run_cycle()`
   - Add `dedup_enabled: bool = True` config field to `ContinuousAgentConfig`
   - Run dedup scan after inbox processing, before writing state
   - Add dedup summary to cycle log: groups found, total wasted bytes
 
-- [ ] Add `GET /api/dedup` endpoint in dashboard
+- [x] Add `GET /api/dedup` endpoint in dashboard
   - Returns duplicate groups with canonical path, duplicates, wasted bytes
   - Supports `?action=report` (read-only) and `?action=quarantine` (move dupes)
 
-- [ ] Add dedup section to dashboard home page or statistics page
+- [x] Add dedup section to dashboard home page or statistics page
   - Show: total duplicates, wasted storage (in GB and $/mo equivalent)
   - List top 10 duplicate groups by wasted space
   - "Quarantine Duplicates" button (moves to `Archive/Quarantined-Duplicates/`)
 
-- [ ] Write tests for dedup engine
+- [x] Write tests for dedup engine
   - Test: hash-based exact duplicate detection
   - Test: filename-based near-duplicate detection
   - Test: quarantine moves dupes, keeps canonical
@@ -263,7 +263,7 @@ health and the value the agent is providing.
 
 #### Tasks
 
-- [ ] Add `GET /api/health-report` endpoint in dashboard
+- [x] Add `GET /api/health-report` endpoint in dashboard
   - Aggregate data from: DNA registry (total tracked, total dupes),
     routing history (files routed this month), dedup engine (wasted storage),
     inbox processor (pending files)
@@ -273,7 +273,7 @@ health and the value the agent is providing.
   - Health score formula: 100 - (duplicate_pct * 30) - (untracked_pct * 40) -
     (inbox_pending_pct * 30)
 
-- [ ] Create file health dashboard page (`dashboard/app/health/page.tsx`)
+- [x] Create file health dashboard page (`dashboard/app/health/page.tsx`)
   - Hero metric: "File Health Score: 87/100" with color (green/yellow/red)
   - Cards: total files tracked, duplicates found, storage wasted,
     files organized this month, corrections applied
@@ -281,7 +281,7 @@ health and the value the agent is providing.
     in cloud storage."
   - Recent activity feed: last 20 routing actions with timestamps
 
-- [ ] Add navigation link to health page in dashboard layout
+- [x] Add navigation link to health page in dashboard layout
   - Add to sidebar/header navigation alongside existing pages
 
 - [ ] Write tests for health report endpoint
@@ -295,35 +295,35 @@ The existing inbox page needs to show routing activity, not just trigger process
 
 #### Tasks
 
-- [ ] Enhance `dashboard/app/inbox/page.tsx`
+- [x] Enhance `dashboard/app/inbox/page.tsx`
   - Add "Recent Activity" tab showing last 50 routing actions from history
   - Add "Learned Overrides" tab showing all active overrides with hit counts
   - Add "Pending Files" tab showing current In-Box contents with proposed routing
 
-- [ ] Add `GET /api/inbox-process/history` endpoint
+- [x] Add `GET /api/inbox-process/history` endpoint
   - Returns last N routing records from `routing_history.json`
   - Supports `?limit=50` query param
 
-- [ ] Add `GET /api/inbox-process/overrides` endpoint
+- [x] Add `GET /api/inbox-process/overrides` endpoint
   - Returns all learned overrides from `learned_overrides.json`
   - Each entry shows: pattern, correct_bin, hit_count, created_at
 
-- [ ] Add `DELETE /api/inbox-process/overrides` endpoint
+- [x] Add `DELETE /api/inbox-process/overrides` endpoint
   - Accepts: `{ pattern }` -- removes an override
   - For cases where user wants to undo a learned correction
 
 ### Phase 1 Success Criteria
 
-- [ ] Agent learns from corrections: move a file back to In-Box, it does not repeat
+- [x] Agent learns from corrections: move a file back to In-Box, it does not repeat
   the same mistake
-- [ ] Every file processed gets a DNA record with hash, tags, and provenance
-- [ ] MCP server responds to `classify_file`, `search_files`, `find_duplicates`,
+- [x] Every file processed gets a DNA record with hash, tags, and provenance
+- [x] MCP server responds to `classify_file`, `search_files`, `find_duplicates`,
   `get_life_context` tools from Claude Desktop
-- [ ] Duplicate files are detected and reported with wasted storage in GB and $/mo
-- [ ] File health dashboard shows a score, recent activity, and storage savings
-- [ ] All new modules have passing tests
-- [ ] Dashboard builds cleanly (`npm run build` exit 0)
-- [ ] Agent runs without errors (`python3 -m organizer --agent-once`)
+- [x] Duplicate files are detected and reported with wasted storage in GB and $/mo
+- [x] File health dashboard shows a score, recent activity, and storage savings
+- [x] All new modules have passing tests
+- [x] Dashboard builds cleanly (`npm run build` exit 0)
+- [x] Agent runs without errors (`python3 -m organizer --agent-once`)
 
 ---
 
