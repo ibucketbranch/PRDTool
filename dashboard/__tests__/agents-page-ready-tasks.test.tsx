@@ -655,16 +655,14 @@ describe("AgentsPage - Ready Tasks Panel", () => {
 			expect(readyTasksFetchCount).toBe(1);
 
 			// Find the Ready Tasks panel's refresh button
-			const readyTasksPanel = screen.getByText("Ready Tasks").closest("div");
-			const refreshButton = readyTasksPanel?.parentElement?.querySelector("button");
+			const refreshButton = screen.getAllByRole("button", { name: /refresh/i })[0];
+			expect(refreshButton).toBeDefined();
 
-			if (refreshButton) {
-				fireEvent.click(refreshButton);
+			fireEvent.click(refreshButton);
 
-				await waitFor(() => {
-					expect(readyTasksFetchCount).toBe(2);
-				});
-			}
+			await waitFor(() => {
+				expect(readyTasksFetchCount).toBe(2);
+			});
 		});
 	});
 });

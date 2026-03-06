@@ -650,19 +650,15 @@ describe("AgentsPage - Drift Report Panel", () => {
 			expect(driftReportFetchCount).toBe(1);
 
 			// Find the Drift Report panel's refresh button
-			// It's in the panel that contains "Drift Report" header
-			const driftReportPanel = screen.getByText("Drift Report").closest("div");
-			const refreshButton = driftReportPanel?.parentElement?.querySelector(
-				"button",
-			);
+			const refreshButtons = screen.getAllByRole("button", { name: /refresh/i });
+			const refreshButton = refreshButtons[refreshButtons.length - 1];
+			expect(refreshButton).toBeDefined();
 
-			if (refreshButton) {
-				fireEvent.click(refreshButton);
+			fireEvent.click(refreshButton);
 
-				await waitFor(() => {
-					expect(driftReportFetchCount).toBe(2);
-				});
-			}
+			await waitFor(() => {
+				expect(driftReportFetchCount).toBe(2);
+			});
 		});
 	});
 
