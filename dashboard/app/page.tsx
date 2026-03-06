@@ -52,6 +52,11 @@ export default function Home() {
           description="View agent status and trigger manual cycles"
           href="/agents"
         />
+        <DashboardCard
+          title="File Intelligence"
+          description="Search file DNA, view provenance, and find duplicates"
+          href="/file-intelligence"
+        />
       </div>
     </main>
   );

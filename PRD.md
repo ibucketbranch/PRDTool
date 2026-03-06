@@ -504,7 +504,7 @@ A web-based dashboard that:
   - Search by keyword, hash, or tag; returns provenance, related files, duplicate status
 - [x] Add `GET /api/file-dna/duplicates` dashboard endpoint
   - Returns duplicate groups: hash, file count, wasted bytes, paths
-- [ ] Add file intelligence page to dashboard
+- [x] Add file intelligence page to dashboard
   - DNA search, duplicate report with storage savings estimate, relationship view
 - [ ] Add tests
   - `test_file_dna.py`: hash computation, T1 tag extraction (mock LLM), keyword fallback when LLM down
