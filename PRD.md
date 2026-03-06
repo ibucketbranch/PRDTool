@@ -725,7 +725,7 @@ A web-based dashboard that:
 #### 16.6 -- Tests
 - [x] `test_llm_client.py`: LLMClient generation, timeout handling, connection errors
 - [x] `test_model_router.py`: tier selection, escalation logic, availability fallback, degradation chain
-- [ ] `test_prompt_registry.py`: prompt loading, variable substitution, missing prompt handling
+- [x] `test_prompt_registry.py`: prompt loading, variable substitution, missing prompt handling
 - [ ] `test_llm_enrichment.py`: metadata extraction, batch mode, cache hits/misses
 - [x] `test_llm_experiment.py`: experiment runner, result aggregation, comparison output
 - [ ] `test_inbox_processor.py` (update): LLM classification path, escalation from T1 to T2, keyword fallback when Ollama down, A/B comparison logging
