@@ -723,7 +723,7 @@ A web-based dashboard that:
   - Results inform the `escalation_threshold` and default routing table
 
 #### 16.6 -- Tests
-- [ ] `test_llm_client.py`: LLMClient generation, timeout handling, connection errors
+- [x] `test_llm_client.py`: LLMClient generation, timeout handling, connection errors
 - [ ] `test_model_router.py`: tier selection, escalation logic, availability fallback, degradation chain
 - [ ] `test_prompt_registry.py`: prompt loading, variable substitution, missing prompt handling
 - [ ] `test_llm_enrichment.py`: metadata extraction, batch mode, cache hits/misses
