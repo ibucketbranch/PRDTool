@@ -724,7 +724,7 @@ A web-based dashboard that:
 
 #### 16.6 -- Tests
 - [x] `test_llm_client.py`: LLMClient generation, timeout handling, connection errors
-- [ ] `test_model_router.py`: tier selection, escalation logic, availability fallback, degradation chain
+- [x] `test_model_router.py`: tier selection, escalation logic, availability fallback, degradation chain
 - [ ] `test_prompt_registry.py`: prompt loading, variable substitution, missing prompt handling
 - [ ] `test_llm_enrichment.py`: metadata extraction, batch mode, cache hits/misses
 - [x] `test_llm_experiment.py`: experiment runner, result aggregation, comparison output
