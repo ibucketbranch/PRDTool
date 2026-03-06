@@ -543,7 +543,7 @@ A web-based dashboard that:
 - [x] Add drift report panel to Agents dashboard page
   - Color-coded: red for likely accidental, yellow for likely intentional; LLM reasoning visible
   - Approve (refile) / Dismiss (mark intentional) per item; bulk approve for likely-accidental
-- [ ] Add tests
+- [x] Add tests
   - `test_refile_agent.py`: drift detection with hash matching, T1 assessment (mock LLM), T2 escalation, keyword fallback, routing history update on refile
   - `test_continuous_agent.py`: refile proposals appear in queue with `reason` and `model_used` fields
 

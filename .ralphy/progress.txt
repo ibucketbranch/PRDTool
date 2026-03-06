@@ -3314,3 +3314,21 @@ Task completed successfully.
 - Added null check for driftReport.groups in page component
 - All 31 agents page tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-05
+- Added missing tests for Phase 14: ReFileMe-Agent tests
+  - Added `TestHashMatching` class with 4 tests for hash-based file search:
+    - `test_search_file_by_hash_finds_matching_file`: Verifies hash matching finds correct file
+    - `test_search_file_by_hash_rejects_wrong_hash`: Verifies wrong hash is rejected
+    - `test_search_file_no_hash_returns_first_match`: Tests fallback when no hash provided
+    - `test_drift_detection_uses_hash_for_verification`: Tests hash computation for drifted files
+  - Added `TestRoutingHistoryUpdateOnRefile` class with 4 tests:
+    - `test_mark_as_refiled_called_on_approval`: Verifies routing history update on approval
+    - `test_record_refile_creates_new_entry`: Tests new routing record creation
+    - `test_refile_preserves_original_routing_info`: Ensures original record info is preserved
+    - `test_drift_record_includes_original_routing_info`: Tests DriftRecord stores original routing
+- All 65 tests in test_refile_agent.py pass
+- All 85 combined tests (refile_agent + routing_history) pass
+- Linting passes
+- Verified existing continuous_agent tests cover `reason` and `model_used` fields requirement
+- Updated PRD.md to mark Phase 14 tests task as complete

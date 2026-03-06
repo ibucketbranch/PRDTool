@@ -1217,3 +1217,314 @@ class TestEdgeCases:
         )
 
         assert result is None
+
+
+# =============================================================================
+# Hash Matching Tests
+# =============================================================================
+
+
+class TestHashMatching:
+    """Tests for hash matching in drift detection."""
+
+    def test_search_file_by_hash_finds_matching_file(self, tmp_path):
+        """Test that search finds file with matching hash."""
+        from organizer.file_dna import compute_file_hash
+
+        # Create a test file
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        test_file = subdir / "test_document.pdf"
+        test_file.write_text("unique content for hash test")
+
+        # Compute the hash
+        expected_hash = compute_file_hash(test_file)
+
+        agent = ReFileAgent()
+
+        # Search by name and hash
+        result = agent._search_file_by_name_and_hash(
+            "test_document.pdf",
+            expected_hash=expected_hash,
+            search_root=str(tmp_path),
+        )
+
+        assert result is not None
+        assert result == str(test_file)
+
+    def test_search_file_by_hash_rejects_wrong_hash(self, tmp_path):
+        """Test that search rejects files with wrong hash."""
+        # Create a test file
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        test_file = subdir / "test_document.pdf"
+        test_file.write_text("some content")
+
+        # Search with wrong hash
+        wrong_hash = "0" * 64  # All zeros, definitely wrong
+
+        agent = ReFileAgent()
+
+        result = agent._search_file_by_name_and_hash(
+            "test_document.pdf",
+            expected_hash=wrong_hash,
+            search_root=str(tmp_path),
+        )
+
+        # Should not find the file because hash doesn't match
+        assert result is None
+
+    def test_search_file_no_hash_returns_first_match(self, tmp_path):
+        """Test that search without hash returns first matching file."""
+        # Create a test file
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        test_file = subdir / "test_document.pdf"
+        test_file.write_text("some content")
+
+        agent = ReFileAgent()
+
+        result = agent._search_file_by_name_and_hash(
+            "test_document.pdf",
+            expected_hash=None,
+            search_root=str(tmp_path),
+        )
+
+        assert result is not None
+        assert result == str(test_file)
+
+    def test_drift_detection_uses_hash_for_verification(self, tmp_path):
+        """Test that drift detection computes hash for found files."""
+        from organizer.file_dna import compute_file_hash
+
+        # Set up routing history
+        history_path = tmp_path / ".organizer" / "agent" / "routing_history.json"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create the expected directory structure
+        finances_bin = tmp_path / "Finances Bin" / "Taxes"
+        finances_bin.mkdir(parents=True)
+
+        # Create file at "drifted" location (Desktop)
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+        drifted_file = desktop / "tax_2024.pdf"
+        drifted_file.write_text("tax document content")
+
+        # The expected hash of the drifted file
+        expected_hash = compute_file_hash(drifted_file)
+
+        # Create routing history pointing to original location
+        from datetime import datetime
+
+        now = datetime.now()
+        records_data = {
+            "records": [
+                {
+                    "filename": "tax_2024.pdf",
+                    "source_path": "/inbox/tax_2024.pdf",
+                    "destination_bin": str(finances_bin),
+                    "confidence": 0.95,
+                    "matched_keywords": ["tax"],
+                    "routed_at": now.isoformat(),
+                    "status": "executed",
+                },
+            ],
+            "updated_at": now.isoformat(),
+        }
+        history_path.write_text(json.dumps(records_data))
+
+        history = RoutingHistory(history_path)
+        agent = ReFileAgent()
+
+        # Run drift detection
+        result = agent.detect_drift(
+            routing_history=history,
+            search_root=str(tmp_path),
+        )
+
+        # Should detect the drift and include hash
+        assert result.files_checked == 1
+        if result.drift_records:
+            drift = result.drift_records[0]
+            # The hash should be computed for the found file
+            assert drift.sha256_hash == expected_hash
+
+
+# =============================================================================
+# Routing History Update on Refile Tests
+# =============================================================================
+
+
+class TestRoutingHistoryUpdateOnRefile:
+    """Tests for routing history updates when refiling drifted files."""
+
+    def test_mark_as_refiled_called_on_approval(self, tmp_path):
+        """Test that mark_as_refiled is called when refile is approved."""
+        # Set up routing history with a record
+        history_path = tmp_path / ".organizer" / "agent" / "routing_history.json"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+
+        from datetime import datetime
+
+        now = datetime.now()
+        records_data = {
+            "records": [
+                {
+                    "filename": "tax_2024.pdf",
+                    "source_path": "/inbox/tax_2024.pdf",
+                    "destination_bin": "/Finances Bin/Taxes",
+                    "confidence": 0.95,
+                    "matched_keywords": ["tax"],
+                    "routed_at": now.isoformat(),
+                    "status": "executed",
+                },
+            ],
+            "updated_at": now.isoformat(),
+        }
+        history_path.write_text(json.dumps(records_data))
+
+        history = RoutingHistory(history_path)
+
+        # Verify initial status is executed
+        record = history.find_by_filename("tax_2024.pdf")
+        assert record is not None
+        assert record.status == "executed"
+
+        # Mark as refiled (simulating approval)
+        result = history.mark_as_refiled("tax_2024.pdf")
+        assert result is True
+
+        # Verify status changed
+        record = history.find_by_filename("tax_2024.pdf")
+        assert record.status == "refiled"
+
+    def test_record_refile_creates_new_entry(self, tmp_path):
+        """Test that record_refile creates a new routing entry."""
+        # Set up routing history with an original record
+        history_path = tmp_path / ".organizer" / "agent" / "routing_history.json"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+
+        from datetime import datetime
+
+        now = datetime.now()
+        records_data = {
+            "records": [
+                {
+                    "filename": "tax_2024.pdf",
+                    "source_path": "/inbox/tax_2024.pdf",
+                    "destination_bin": "/Finances Bin/Taxes",
+                    "confidence": 0.95,
+                    "matched_keywords": ["tax"],
+                    "routed_at": now.isoformat(),
+                    "status": "executed",
+                },
+            ],
+            "updated_at": now.isoformat(),
+        }
+        history_path.write_text(json.dumps(records_data))
+
+        history = RoutingHistory(history_path)
+
+        # Count initial records
+        initial_count = len(history.get_all_records())
+        assert initial_count == 1
+
+        # Record a refile (file moved from Desktop back to correct location)
+        new_record = history.record_refile(
+            filename="tax_2024.pdf",
+            source_path="/Desktop/tax_2024.pdf",  # Where it drifted to
+            destination_bin="/Finances Bin/Taxes/2024",  # New destination
+            confidence=0.88,
+            matched_keywords=["tax", "2024"],
+        )
+
+        # Verify new record was created
+        assert new_record is not None
+        assert new_record.status == "executed"
+        assert new_record.destination_bin == "/Finances Bin/Taxes/2024"
+
+        # Verify we now have 2 records
+        all_records = history.get_all_records()
+        assert len(all_records) == 2
+
+        # Verify original is marked as refiled
+        refiled_records = history.find_refiled()
+        assert len(refiled_records) == 1
+        assert refiled_records[0].filename == "tax_2024.pdf"
+
+    def test_refile_preserves_original_routing_info(self, tmp_path):
+        """Test that refile preserves reference to original routing."""
+        history_path = tmp_path / ".organizer" / "agent" / "routing_history.json"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+
+        from datetime import datetime
+
+        now = datetime.now()
+        original_destination = "/Finances Bin/Taxes"
+        records_data = {
+            "records": [
+                {
+                    "filename": "invoice_2024.pdf",
+                    "source_path": "/inbox/invoice_2024.pdf",
+                    "destination_bin": original_destination,
+                    "confidence": 0.90,
+                    "matched_keywords": ["invoice"],
+                    "routed_at": now.isoformat(),
+                    "status": "executed",
+                },
+            ],
+            "updated_at": now.isoformat(),
+        }
+        history_path.write_text(json.dumps(records_data))
+
+        history = RoutingHistory(history_path)
+
+        # Get original record for reference
+        original = history.find_by_filename("invoice_2024.pdf")
+        assert original is not None
+
+        # Record refile
+        history.record_refile(
+            filename="invoice_2024.pdf",
+            source_path="/Downloads/invoice_2024.pdf",
+            destination_bin="/Finances Bin/Invoices/2024",
+            confidence=0.92,
+            matched_keywords=["invoice", "2024"],
+            original_record=original,
+        )
+
+        # Verify original is marked as refiled (status preserved)
+        all_records = history.get_all_records()
+        refiled = [r for r in all_records if r.status == "refiled"]
+        assert len(refiled) == 1
+        assert refiled[0].destination_bin == original_destination
+
+    def test_drift_record_includes_original_routing_info(self, tmp_path):
+        """Test that DriftRecord can store original routing record reference."""
+        original_routing = {
+            "filename": "report.pdf",
+            "source_path": "/inbox/report.pdf",
+            "destination_bin": "/Work Bin/Reports",
+            "confidence": 0.95,
+            "matched_keywords": ["report"],
+            "routed_at": "2024-01-15T10:00:00",
+            "status": "executed",
+        }
+
+        drift = DriftRecord(
+            file_path="/Desktop/report.pdf",
+            original_filed_path="/Work Bin/Reports/report.pdf",
+            current_path="/Desktop/report.pdf",
+            drift_assessment="likely_accidental",
+            confidence=0.85,
+            original_routing_record=original_routing,
+        )
+
+        # Verify original routing info is stored
+        assert drift.original_routing_record == original_routing
+        assert drift.original_routing_record["destination_bin"] == "/Work Bin/Reports"
+
+        # Verify roundtrip preserves the data
+        restored = DriftRecord.from_dict(drift.to_dict())
+        assert restored.original_routing_record == original_routing
