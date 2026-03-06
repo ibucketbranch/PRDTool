@@ -3734,3 +3734,48 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
   - `dashboard/__tests__/api-enrichment.test.ts` - 9 tests for the API endpoint
 - All 29 tests pass, linting passes
 - Task completed successfully
+
+## 2026-03-05
+- Implemented LLM health check endpoint (Phase 16.4 - Observability and Dashboard)
+  - Created `dashboard/app/api/llm/status/route.ts`:
+    - `GET /api/llm/status` - Returns LLM health status including:
+      - `status`: "operational" | "degraded" | "offline"
+      - `ollama_available`: boolean indicating if Ollama is running
+      - `loaded_models`: array of currently loaded model names
+      - `total_classifications_today`: number of LLM classifications today
+      - `keyword_fallback_count_today`: number of keyword fallback classifications today
+      - `model_stats`: per-model statistics (model, tier, total_calls, avg_duration_ms, calls_today)
+      - `config`: configured model names (fast_model, smart_model, cloud_model, escalation_threshold)
+      - `health_checked_at`: ISO timestamp of health check
+    - Returns HTTP 503 when Ollama is offline
+    - Reads enrichment_cache.json for classification statistics
+    - Reads agent_config.json for model configuration
+  - Created `dashboard/app/api/llm/models/route.ts`:
+    - `GET /api/llm/models` - Returns list of available models with:
+      - `name`: model name
+      - `tier`: "fast" | "smart" | "cloud" | "unknown"
+      - `tier_source`: "config" | "pattern" | "default"
+      - `size_bytes`: model size in bytes
+      - `size_display`: human-readable size (e.g., "8.0GB")
+      - `is_available`: boolean
+      - `is_configured`: boolean indicating if this is a configured model
+      - `parameter_size`, `quantization`, `family`, `modified_at`: model details
+    - `configured_models`: fast/smart/cloud model names from config
+    - `ollama_available`: boolean
+    - Sorted: configured models first, then by tier (fast, smart, cloud, unknown)
+- Created tests:
+  - `dashboard/__tests__/llm-status-api.test.ts` - 11 tests covering:
+    - Operational/degraded/offline status detection
+    - Configuration loading and defaults
+    - Model statistics calculation
+    - Health check timestamp
+    - Error handling (timeout, HTTP errors)
+  - `dashboard/__tests__/llm-models-api.test.ts` - 14 tests covering:
+    - Model listing with details
+    - Tier assignment from config and patterns
+    - Configured models response
+    - Sorting order
+    - Size formatting (GB/MB)
+    - Error handling
+- All 25 tests pass, linting passes
+- Task completed successfully

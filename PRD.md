@@ -688,7 +688,7 @@ A web-based dashboard that:
   - No vector database needed -- structured metadata + text search is sufficient for this scale
 
 #### 16.4 -- Observability and Dashboard
-- [ ] Add LLM health check endpoint
+- [x] Add LLM health check endpoint
   - `GET /api/llm/status`: Ollama running?, loaded models, per-model avg response time, total classifications today
   - `GET /api/llm/models`: list available models with size, tier assignment, availability
   - Show LLM status on Agents page: model name, tier, avg response time, classification count
