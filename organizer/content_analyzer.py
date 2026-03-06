@@ -1175,85 +1175,86 @@ def analyze_folder_with_processing_from_path(
 
 
 class DefaultDocumentProcessor:
-    """Default implementation of DocumentProcessor using file system scanning.
+    """DocumentProcessor backed by the Goldilocks ingestion pipeline.
 
-    This is a basic implementation that can find files and check if they're
-    processable. For full document processing capabilities (content extraction,
-    AI analysis), integrate with an external DocumentProcessor implementation.
+    Extracts file signals (filename, path, first 500 chars of content),
+    classifies via local Ollama LLM, and stores results in SQLite.
     """
 
-    def __init__(self, extensions: set[str] | None = None):
-        """Initialize with optional custom extensions.
-
-        Args:
-            extensions: Set of supported file extensions. Defaults to SUPPORTED_EXTENSIONS.
-        """
+    def __init__(
+        self,
+        extensions: set[str] | None = None,
+        db_path: str = "",
+        fast_model: str = "llama3.1:8b-instruct-q8_0",
+        smart_model: str = "qwen2.5-coder:14b",
+        escalation_threshold: float = 0.7,
+    ):
         self.extensions = extensions or SUPPORTED_EXTENSIONS
+        self._db_path = db_path
+        self._fast_model = fast_model
+        self._smart_model = smart_model
+        self._escalation_threshold = escalation_threshold
 
     def find_files(self, folder_path: str) -> list[str]:
-        """Find all processable files in a folder.
-
-        Args:
-            folder_path: Path to the folder to scan.
-
-        Returns:
-            List of file paths found in the folder.
-        """
         files = scan_folder_for_files(folder_path, self.extensions, recursive=True)
         return [f.path for f in files]
 
     def is_processable(self, file_path: str) -> bool:
-        """Check if a file can be processed.
-
-        Args:
-            file_path: Path to the file to check.
-
-        Returns:
-            True if the file extension is supported, False otherwise.
-        """
         return is_supported_file(file_path, self.extensions)
 
     def process_file(self, file_path: str) -> dict:
-        """Process a file (stub - returns basic metadata only).
-
-        Note: This default implementation only returns file metadata.
-        For full content extraction and AI analysis, integrate with an
-        external DocumentProcessor implementation.
-
-        Args:
-            file_path: Path to the file to process.
-
-        Returns:
-            Dictionary with basic file metadata.
-        """
-        path = Path(file_path)
-        if not path.exists():
+        """Extract signals, classify via LLM, and store in the database."""
+        path_obj = Path(file_path)
+        if not path_obj.exists():
             return {"path": file_path, "error": "File not found", "success": False}
 
         try:
-            stat = path.stat()
+            from organizer.light_extractor import collect_signals
+            from organizer.llm_classifier import classify_file
+
+            signals = collect_signals(file_path)
+            classification = classify_file(
+                signals,
+                fast_model=self._fast_model,
+                smart_model=self._smart_model,
+                escalation_threshold=self._escalation_threshold,
+            )
+
+            if self._db_path:
+                from organizer.ingestion_pipeline import IngestionPipeline
+                pipeline = IngestionPipeline(self._db_path)
+                pipeline.ingest_file(file_path)
+                pipeline.close()
+
             return {
                 "path": file_path,
-                "filename": path.name,
-                "extension": path.suffix.lower(),
-                "size_bytes": stat.st_size,
-                "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "filename": path_obj.name,
+                "extension": path_obj.suffix.lower(),
+                "ai_category": classification.category,
+                "ai_subcategory": classification.subcategory,
+                "entities": classification.entities,
+                "key_dates": classification.key_dates,
+                "summary": classification.summary,
+                "confidence": classification.confidence,
+                "model": classification.model_used,
                 "success": True,
-                "note": "Basic metadata only - integrate DocumentProcessor for full analysis",
             }
-        except OSError as e:
+        except Exception as e:
             return {"path": file_path, "error": str(e), "success": False}
 
 
 def create_document_processor(
     extensions: set[str] | None = None,
+    db_path: str = "",
+    fast_model: str = "llama3.1:8b-instruct-q8_0",
+    smart_model: str = "qwen2.5-coder:14b",
+    escalation_threshold: float = 0.7,
 ) -> DefaultDocumentProcessor:
-    """Create a default DocumentProcessor instance.
-
-    Args:
-        extensions: Set of supported file extensions. Defaults to SUPPORTED_EXTENSIONS.
-
-    Returns:
-        DefaultDocumentProcessor instance.
-    """
-    return DefaultDocumentProcessor(extensions)
+    """Create a DocumentProcessor instance backed by the Goldilocks pipeline."""
+    return DefaultDocumentProcessor(
+        extensions=extensions,
+        db_path=db_path,
+        fast_model=fast_model,
+        smart_model=smart_model,
+        escalation_threshold=escalation_threshold,
+    )

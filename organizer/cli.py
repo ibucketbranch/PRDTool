@@ -355,6 +355,44 @@ def create_parser() -> argparse.ArgumentParser:
         help="Maximum acceptable p95 latency in milliseconds. Default: 5000",
     )
 
+    parser.add_argument(
+        "--ingest",
+        nargs="?",
+        const=".",
+        metavar="PATH",
+        help="Run Goldilocks content ingestion on PATH (default: iCloud root). "
+        "Scans for unindexed files, extracts signals, classifies via LLM, "
+        "and stores results in organizer.db.",
+    )
+
+    parser.add_argument(
+        "--ingest-max-files",
+        type=int,
+        metavar="N",
+        help="Limit ingestion to N files (useful for testing).",
+    )
+
+    parser.add_argument(
+        "--ingest-max-depth",
+        type=int,
+        default=3,
+        metavar="DEPTH",
+        help="Max directory depth for ingestion scan (default: 3).",
+    )
+
+    parser.add_argument(
+        "--classify",
+        type=str,
+        metavar="FILE",
+        help="Classify a single file and print results (does not store).",
+    )
+
+    parser.add_argument(
+        "--ingest-stats",
+        action="store_true",
+        help="Show ingestion database statistics.",
+    )
+
     return parser
 
 
@@ -408,6 +446,11 @@ def validate_args(args: argparse.Namespace) -> list[str]:
     )
     has_experiment_action = args.experiment is not None
     has_tune_action = args.tune_routing is not None
+    has_ingest_action = (
+        args.ingest is not None
+        or args.classify is not None
+        or args.ingest_stats
+    )
     if (
         not has_standard_action
         and not has_agent_action
@@ -415,13 +458,15 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         and not has_learn_action
         and not has_experiment_action
         and not has_tune_action
+        and not has_ingest_action
     ):
         errors.append(
             "Must specify at least one action: --scan, --plan, --execute, "
             "--agent-init-config, --agent-run, --agent-once, "
             "--agent-launchd-install, --agent-launchd-uninstall, "
             "--agent-launchd-status, --mcp-server, --learn-structure, "
-            "--learn-confirm, --learn-status, --experiment, or --tune-routing"
+            "--learn-confirm, --learn-status, --experiment, --tune-routing, "
+            "--ingest, --classify, or --ingest-stats"
         )
 
     # Check execute-specific requirements
@@ -1888,6 +1933,201 @@ def run_tune_routing(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_ingest(args: argparse.Namespace) -> int:
+    """Run Goldilocks content ingestion."""
+    from organizer.ingestion_pipeline import IngestionPipeline
+
+    config_path = Path(args.agent_config).resolve()
+    db_path = ""
+    base_path = str(Path(args.ingest).resolve())
+    fast_model = "llama3.1:8b-instruct-q8_0"
+    smart_model = "qwen2.5-coder:14b"
+    escalation_threshold = 0.7
+
+    if config_path.exists():
+        config = ContinuousAgentConfig.load(config_path)
+        if config.db_path:
+            db_path = config.db_path
+        base_path = config.base_path or base_path
+        llm = getattr(config, "llm_models", None)
+        if isinstance(llm, dict):
+            fast_model = llm.get("fast", fast_model)
+            smart_model = llm.get("smart", smart_model)
+            escalation_threshold = llm.get("escalation_threshold", escalation_threshold)
+
+    if not db_path:
+        db_path = str(Path(base_path) / ".organizer" / "organizer.db")
+
+    print("GOLDILOCKS CONTENT INGESTION")
+    print("=" * 40)
+    print(f"Base path: {base_path}")
+    print(f"Database:  {db_path}")
+    print(f"Fast LLM:  {fast_model}")
+    print(f"Smart LLM: {smart_model}")
+    print(f"Max depth: {args.ingest_max_depth}")
+    if args.ingest_max_files:
+        print(f"Max files: {args.ingest_max_files}")
+    print()
+
+    pipeline = IngestionPipeline(
+        db_path=db_path,
+        fast_model=fast_model,
+        smart_model=smart_model,
+        escalation_threshold=escalation_threshold,
+    )
+
+    def progress_cb(p):
+        pct = ((p.processed + p.skipped + p.failed) / p.total * 100) if p.total else 0
+        print(
+            f"  [{p.processed + p.skipped + p.failed}/{p.total}] "
+            f"{pct:5.1f}%  processed={p.processed} skipped={p.skipped} "
+            f"failed={p.failed}  ({p.elapsed_seconds:.0f}s)",
+        )
+
+    print("Scanning for unindexed files...")
+    progress = pipeline.ingest_all(
+        base_path=base_path,
+        max_depth=args.ingest_max_depth,
+        max_files=args.ingest_max_files,
+        batch_size=20,
+        progress_callback=progress_cb,
+    )
+
+    print()
+    print("INGESTION COMPLETE")
+    print("=" * 40)
+    print(f"Total files found:  {progress.total}")
+    print(f"Processed (new):    {progress.processed}")
+    print(f"Skipped (indexed):  {progress.skipped}")
+    print(f"Failed:             {progress.failed}")
+    print(f"Elapsed:            {progress.elapsed_seconds:.1f}s")
+
+    stats = pipeline.get_stats()
+    print()
+    print(f"Database total:     {stats['total_documents']} documents")
+    if stats["categories"]:
+        print("Categories:")
+        for cat, count in stats["categories"].items():
+            print(f"  {cat}: {count}")
+
+    pipeline.close()
+    return 0
+
+
+def run_classify_single(args: argparse.Namespace) -> int:
+    """Classify a single file and print results."""
+    from organizer.light_extractor import collect_signals
+    from organizer.llm_classifier import classify_file
+
+    file_path = str(Path(args.classify).resolve())
+    if not Path(file_path).exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        return 1
+
+    config_path = Path(args.agent_config).resolve()
+    fast_model = "llama3.1:8b-instruct-q8_0"
+    smart_model = "qwen2.5-coder:14b"
+    escalation_threshold = 0.7
+
+    if config_path.exists():
+        config = ContinuousAgentConfig.load(config_path)
+        llm = getattr(config, "llm_models", None)
+        if isinstance(llm, dict):
+            fast_model = llm.get("fast", fast_model)
+            smart_model = llm.get("smart", smart_model)
+            escalation_threshold = llm.get("escalation_threshold", escalation_threshold)
+
+    print(f"Classifying: {file_path}")
+    print()
+
+    signals = collect_signals(file_path)
+    print("SIGNALS")
+    print("-" * 30)
+    print(f"Filename:   {signals.filename}")
+    print(f"Extension:  {signals.extension}")
+    print(f"Size:       {signals.file_size:,} bytes")
+    print(f"Parents:    {'/'.join(signals.parent_folders)}")
+    print(f"Method:     {signals.extraction_method}")
+    if signals.content_preview:
+        preview = signals.content_preview[:200].replace("\n", " ")
+        print(f"Preview:    {preview}...")
+    print()
+
+    classification = classify_file(
+        signals,
+        fast_model=fast_model,
+        smart_model=smart_model,
+        escalation_threshold=escalation_threshold,
+    )
+
+    print("CLASSIFICATION")
+    print("-" * 30)
+    print(f"Category:    {classification.category}")
+    print(f"Subcategory: {classification.subcategory}")
+    print(f"Confidence:  {classification.confidence:.0%}")
+    print(f"Model:       {classification.model_used}")
+    print(f"Summary:     {classification.summary}")
+    if classification.entities:
+        print(f"Entities:    {', '.join(classification.entities)}")
+    if classification.key_dates:
+        print(f"Key dates:   {', '.join(classification.key_dates)}")
+
+    return 0
+
+
+def run_ingest_stats(args: argparse.Namespace) -> int:
+    """Show ingestion database statistics."""
+    from organizer.ingestion_pipeline import IngestionPipeline
+
+    config_path = Path(args.agent_config).resolve()
+    db_path = ""
+
+    if config_path.exists():
+        config = ContinuousAgentConfig.load(config_path)
+        if config.db_path:
+            db_path = config.db_path
+
+    if not db_path:
+        print("Error: No database path configured.", file=sys.stderr)
+        print("Set db_path in agent_config.json or use --ingest first.", file=sys.stderr)
+        return 1
+
+    if not Path(db_path).exists():
+        print(f"Error: Database not found at: {db_path}", file=sys.stderr)
+        print("Run --ingest to create and populate the database.", file=sys.stderr)
+        return 1
+
+    pipeline = IngestionPipeline(db_path=db_path)
+    stats = pipeline.get_stats()
+
+    print("INGESTION DATABASE STATISTICS")
+    print("=" * 40)
+    print(f"Database:         {db_path}")
+    print(f"Total documents:  {stats['total_documents']}")
+    print()
+
+    if stats["categories"]:
+        print("Categories:")
+        for cat, count in stats["categories"].items():
+            pct = count / stats["total_documents"] * 100 if stats["total_documents"] else 0
+            print(f"  {cat:20s} {count:5d}  ({pct:.1f}%)")
+        print()
+
+    print("Confidence:")
+    print(f"  Average: {stats['confidence']['avg']:.3f}")
+    print(f"  Min:     {stats['confidence']['min']:.3f}")
+    print(f"  Max:     {stats['confidence']['max']:.3f}")
+    print()
+
+    if stats["models_used"]:
+        print("Models used:")
+        for model, count in stats["models_used"].items():
+            print(f"  {model}: {count}")
+
+    pipeline.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI.
 
@@ -1914,6 +2154,12 @@ def main(argv: list[str] | None = None) -> int:
         from organizer.mcp_server import run
         run()
         return 0
+    if args.ingest is not None:
+        return run_ingest(args)
+    if args.classify is not None:
+        return run_classify_single(args)
+    if args.ingest_stats:
+        return run_ingest_stats(args)
     if args.tune_routing is not None:
         exit_code = run_tune_routing(args)
     elif args.experiment is not None:

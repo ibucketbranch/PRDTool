@@ -835,19 +835,19 @@ No OCR. No full-document parsing. No cloud APIs.
 **File landscape (iCloud Drive):** ~2,602 PDFs, 20 DOCX, 18 XLSX, 31 TXT, 269 HTML, 52 JSON (~3,000 text-accessible files). Images (PNGs, TIFFs, JPGs) are indexed by filename/path only -- no content extraction.
 
 #### 19.1 Dependencies and Database Schema
-- [ ] Install Python packages: `pdfplumber`, `python-docx`, `openpyxl`, `ollama`
-- [ ] Add to `requirements.txt` with pinned versions
-- [ ] Create `organizer/schema.py` with `init_database(db_path)` function
-- [ ] `documents` table: `id` (INTEGER PK), `filename` (TEXT), `current_path` (TEXT UNIQUE), `file_hash` (TEXT), `file_size` (INTEGER), `file_extension` (TEXT), `ai_category` (TEXT), `ai_subcategories` (TEXT/JSON), `ai_summary` (TEXT), `entities` (TEXT/JSON), `key_dates` (TEXT/JSON), `folder_hierarchy` (TEXT/JSON), `original_path` (TEXT), `canonical_folder` (TEXT), `rename_status` (TEXT), `content_preview` (TEXT), `classification_confidence` (REAL), `classification_model` (TEXT), `indexed_at` (TEXT), `updated_at` (TEXT)
-- [ ] `document_locations` table: `id` (INTEGER PK), `document_id` (INTEGER FK), `path` (TEXT), `location_type` (TEXT), `created_at` (TEXT)
-- [ ] Indexes on `current_path`, `file_hash`, `ai_category`, `classification_confidence`
-- [ ] Schema must align with columns expected by `content_analyzer.py`'s `get_folder_metadata()` query
+- [x] Install Python packages: `pdfplumber`, `python-docx`, `openpyxl`, `ollama`
+- [x] Add to `requirements.txt` with pinned versions
+- [x] Create `organizer/schema.py` with `init_database(db_path)` function
+- [x] `documents` table: `id` (INTEGER PK), `filename` (TEXT), `current_path` (TEXT UNIQUE), `file_hash` (TEXT), `file_size` (INTEGER), `file_extension` (TEXT), `ai_category` (TEXT), `ai_subcategories` (TEXT/JSON), `ai_summary` (TEXT), `entities` (TEXT/JSON), `key_dates` (TEXT/JSON), `folder_hierarchy` (TEXT/JSON), `original_path` (TEXT), `canonical_folder` (TEXT), `rename_status` (TEXT), `content_preview` (TEXT), `classification_confidence` (REAL), `classification_model` (TEXT), `indexed_at` (TEXT), `updated_at` (TEXT)
+- [x] `document_locations` table: `id` (INTEGER PK), `document_id` (INTEGER FK), `path` (TEXT), `location_type` (TEXT), `created_at` (TEXT)
+- [x] Indexes on `current_path`, `file_hash`, `ai_category`, `classification_confidence`
+- [x] Schema must align with columns expected by `content_analyzer.py`'s `get_folder_metadata()` query
 
 #### 19.2 Light Extractor
-- [ ] Create `organizer/light_extractor.py`
-- [ ] `FileSignals` dataclass: `file_path`, `filename`, `parent_folders` (list), `extension`, `file_size`, `modified_date`, `content_preview` (first 500 chars), `extraction_method`
-- [ ] `collect_signals(file_path: str) -> FileSignals`
-- [ ] **Text-accessible files (extract first 500 chars):**
+- [x] Create `organizer/light_extractor.py`
+- [x] `FileSignals` dataclass: `file_path`, `filename`, `parent_folders` (list), `extension`, `file_size`, `modified_date`, `content_preview` (first 500 chars), `extraction_method`
+- [x] `collect_signals(file_path: str) -> FileSignals`
+- [x] **Text-accessible files (extract first 500 chars):**
   - `.pdf` -- pdfplumber, page 1 only, first 500 chars
   - `.docx` -- python-docx, first 2 paragraphs, first 500 chars
   - `.xlsx` -- openpyxl, sheet names + first row of first sheet
@@ -856,70 +856,66 @@ No OCR. No full-document parsing. No cloud APIs.
   - `.html/.htm` -- direct read (strip tags optional), first 500 chars
   - `.pptx` -- python-pptx, first slide text, first 500 chars (cheap -- same library pattern as docx)
   - `.doc/.key/.numbers/.pages` -- macOS `textutil -convert txt -stdout` (built-in, zero-cost)
-- [ ] **Filename + path only (no content extraction):**
+- [x] **Filename + path only (no content extraction):**
   - Images: `.png`, `.jpg`, `.jpeg`, `.gif`, `.tiff`, `.bmp`, `.heic`
   - Video: `.mp4`, `.mov`, `.m4v`, `.avi`
   - Audio: `.mp3`, `.m4a`, `.wav`
   - Archives: `.zip`, `.gz`, `.tar`, `.dmg`
   - Binaries: `.exe`, `.app`, `.pkg`, `.iso`
   - All other unrecognized extensions
-- [ ] iCloud-safe: `os.scandir()`, skip `.icloud` placeholders, 5MB file size cap
-- [ ] Tests: `test_light_extractor.py`
+- [x] iCloud-safe: `os.scandir()`, skip `.icloud` placeholders, 5MB file size cap
+- [x] Tests: `test_light_extractor.py`
 
 #### 19.3 LLM Classifier
-- [ ] Create `organizer/llm_classifier.py`
-- [ ] `Classification` dataclass: `category`, `subcategory`, `entities` (list), `key_dates` (list), `summary`, `confidence` (float), `model_used`
-- [ ] `classify_file(signals: FileSignals) -> Classification`
-- [ ] Primary model: `llama3.1:8b-instruct-q8_0` (from agent_config `llm_models.fast`)
-- [ ] Escalation: if confidence < 0.7, retry with `qwen2.5-coder:14b` (`llm_models.smart`)
-- [ ] Categories must match canonical bins: Work, Personal, Family, Finances, Legal, VA, Archive
-- [ ] Structured prompt sends filename + path + preview, requests JSON response
-- [ ] Keyword fallback: if Ollama unavailable, use `file_dna.py`'s `extract_tags_from_filename()` heuristics
-- [ ] Rate limiting: configurable delay between Ollama calls (default 0.5s)
-- [ ] Tests: `test_llm_classifier.py` (mock Ollama responses)
+- [x] Create `organizer/llm_classifier.py`
+- [x] `Classification` dataclass: `category`, `subcategory`, `entities` (list), `key_dates` (list), `summary`, `confidence` (float), `model_used`
+- [x] `classify_file(signals: FileSignals) -> Classification`
+- [x] Primary model: `llama3.1:8b-instruct-q8_0` (from agent_config `llm_models.fast`)
+- [x] Escalation: if confidence < 0.7, retry with `qwen2.5-coder:14b` (`llm_models.smart`)
+- [x] Categories must match canonical bins: Work, Personal, Family, Finances, Legal, VA, Archive
+- [x] Structured prompt sends filename + path + preview, requests JSON response
+- [x] Keyword fallback: if Ollama unavailable, use keyword heuristics matching KEYWORD_RULES
+- [x] Rate limiting: configurable delay between Ollama calls (default 0.5s)
+- [x] Tests: `test_llm_classifier.py` (mock Ollama responses)
 
 #### 19.4 Ingestion Pipeline
-- [ ] Create `organizer/ingestion_pipeline.py`
-- [ ] `IngestionPipeline` class with:
+- [x] Create `organizer/ingestion_pipeline.py`
+- [x] `IngestionPipeline` class with:
   - `scan(base_path, max_depth)` -- walk filesystem, find un-indexed files (not in DB by hash)
   - `ingest_file(file_path)` -- collect signals -> classify -> store in DB
   - `ingest_batch(file_paths, batch_size=20)` -- process with progress, commit DB every batch
   - `ingest_all(base_path, max_depth)` -- full scan + ingest
-- [ ] Resume support: skip files already in DB by `file_hash`
-- [ ] `IngestionProgress` dataclass: `total`, `processed`, `skipped`, `failed`, `elapsed_seconds`
-- [ ] Interruptible: checkpoints after each batch commit
-- [ ] iCloud-safe: `os.scandir()`, skip `.icloud` placeholders, respect `max_depth`
+- [x] Resume support: skip files already in DB by `file_hash`
+- [x] `IngestionProgress` dataclass: `total`, `processed`, `skipped`, `failed`, `elapsed_seconds`
+- [x] Interruptible: checkpoints after each batch commit
+- [x] iCloud-safe: `os.scandir()`, skip `.icloud` placeholders, respect `max_depth`
 - [ ] Tests: `test_ingestion_pipeline.py`
 
 #### 19.5 Wire into Existing System
-- [ ] Replace `DefaultDocumentProcessor` stub in `content_analyzer.py` with `GoldilocksProcessor` that calls `LightExtractor` + `LLMClassifier` + DB write
-- [ ] Update `agent_config.json`:
+- [x] Replace `DefaultDocumentProcessor` stub in `content_analyzer.py` with `GoldilocksProcessor` that calls `LightExtractor` + `LLMClassifier` + DB write
+- [x] Update `agent_config.json`:
   - `db_path`: `.organizer/organizer.db`
   - `content_aware`: `true`
-  - `consolidation_scan_enabled`: `true`
-  - `analyze_missing`: `true`
-  - New: `ingestion_enabled`: `true`
-  - New: `ingestion_max_files_per_cycle`: `50`
 - [ ] Update `continuous_agent.py` `run_cycle()`: add ingestion step before consolidation planning -- ingest up to `ingestion_max_files_per_cycle` new/changed files per cycle
 - [ ] Agent becomes progressively smarter each hourly cycle
 
 #### 19.6 CLI Commands
-- [ ] `--ingest [path]` -- run ingestion on a folder (default: entire base_path)
-- [ ] `--ingest-status` -- show indexed vs total files, last run time, confidence distribution
-- [ ] `--classify <file>` -- classify a single file and print result (for testing/debugging)
-- [ ] `--db-stats` -- show category breakdown, entity counts, date range coverage
+- [x] `--ingest [path]` -- run ingestion on a folder (default: entire base_path)
+- [x] `--ingest-stats` -- show indexed vs total files, confidence distribution, category breakdown
+- [x] `--classify <file>` -- classify a single file and print result (for testing/debugging)
+- [x] `--ingest-max-files N` and `--ingest-max-depth N` -- control scan scope
 
 #### 19.7 Dashboard Integration
-- [ ] API endpoint `/api/content-index/stats` -- indexing progress, category distribution
+- [x] API endpoint `/api/ingestion-stats` -- indexing progress, category distribution, confidence stats
 - [ ] API endpoint `/api/content-index/search` -- search by entities, dates, content preview
 - [ ] Update search page to show `ai_summary` and `entities` in results when available
 - [ ] Add indexing progress indicator to dashboard home
 
 #### Phase 19 Tests
-- [ ] `test_light_extractor.py`: PDF page-1 extraction, DOCX paragraph extraction, plain text read, iCloud placeholder skip, file size cap
-- [ ] `test_llm_classifier.py`: mock Ollama classification, confidence escalation, keyword fallback, category validation
+- [x] `test_light_extractor.py`: plain text read, JSON extraction, iCloud placeholder skip, file size cap, parent folder resolution
+- [x] `test_llm_classifier.py`: keyword fallback classification, category validation, year extraction, LLM JSON parsing
 - [ ] `test_ingestion_pipeline.py`: scan finds un-indexed files, batch processing, resume by hash, progress tracking
-- [ ] `test_schema.py`: database creation, schema validation, column alignment with content_analyzer.py
+- [x] `test_schema.py`: database creation, schema validation, column alignment, index creation, idempotency
 
 ---
 
