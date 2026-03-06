@@ -1,4 +1,4 @@
-# PRD: FileRoomba -- Document Intelligence Platform
+# PRD: PRDTool -- Document Intelligence Platform
 
 > Full product vision with phased execution.
 > Phase 1 is the active build phase. Phases 2-3 are future roadmap.
@@ -7,7 +7,7 @@
 
 ## Vision
 
-FileRoomba is a document intelligence platform that autonomously organizes files,
+PRDTool is a document intelligence platform that autonomously organizes files,
 builds a knowledge graph of document relationships, and provides a consent-gated
 conduit for platforms that need user documents. It runs locally (privacy-first),
 works across any storage provider, never deletes files, and gets smarter from
@@ -167,7 +167,7 @@ AI assistant (Claude Desktop, Cursor, custom agents) can query your file intelli
 
 - [ ] Create `organizer/mcp_server.py` module
   - Use `mcp` Python SDK (add to `requirements.txt`)
-  - Server name: "fileroomba"
+  - Server name: "prdtool"
   - Transport: stdio (for Claude Desktop / Cursor integration)
 
 - [ ] Implement MCP tool: `classify_file`
@@ -513,14 +513,14 @@ The existing inbox page needs to show routing activity, not just trigger process
 
 #### Tasks
 
-- [ ] Create Python SDK (`sdk/python/fileroomba/`)
-  - `FileRoombaClient` class: init with API key, request documents,
+- [ ] Create Python SDK (`sdk/python/prdtool/`)
+  - `PRDToolClient` class: init with API key, request documents,
     poll for approval, download package
-  - Package as `fileroomba` on PyPI
+  - Package as `prdtool` on PyPI
 
 - [ ] Create JavaScript SDK (`sdk/js/`)
-  - `FileRoombaClient` class: same interface as Python
-  - Package as `@fileroomba/sdk` on npm
+  - `PRDToolClient` class: same interface as Python
+  - Package as `@prdtool/sdk` on npm
 
 - [ ] Write SDK documentation (`docs/SDK.md`)
   - Quick start for Python and JavaScript

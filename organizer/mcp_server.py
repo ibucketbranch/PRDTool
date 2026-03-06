@@ -1,4 +1,4 @@
-"""MCP server for FileRoomba — exposes classification, search, and file intelligence.
+"""MCP server for PRDTool — exposes classification, search, and file intelligence.
 
 Run with: python -m organizer --mcp-server
 Or: python -c "from organizer.mcp_server import run; run()"
@@ -57,8 +57,8 @@ def _get_override_registry(base_path: str):
     return OverrideRegistry(overrides_path)
 
 
-def create_fileroomba_mcp(config_path: str | Path = DEFAULT_CONFIG_PATH) -> "FastMCP":
-    """Create and configure the FileRoomba MCP server."""
+def create_prdtool_mcp(config_path: str | Path = DEFAULT_CONFIG_PATH) -> "FastMCP":
+    """Create and configure the PRDTool MCP server."""
     if FastMCP is None:
         raise ImportError(
             "MCP SDK not installed. Run: pip install 'mcp[cli]'"
@@ -68,7 +68,7 @@ def create_fileroomba_mcp(config_path: str | Path = DEFAULT_CONFIG_PATH) -> "Fas
     base_path = config.get("base_path", str(Path.cwd()))
     base_path = str(Path(base_path).resolve())
 
-    mcp = FastMCP("fileroomba", json_response=True)
+    mcp = FastMCP("prdtool", json_response=True)
 
     @mcp.tool()
     def classify_file(filepath: str, content_hint: str = "") -> str:
@@ -258,7 +258,7 @@ def run() -> None:
     else:
         config_path = str(Path.cwd() / config_path)
 
-    mcp = create_fileroomba_mcp(config_path)
+    mcp = create_prdtool_mcp(config_path)
     mcp.run(transport="stdio")
 
 

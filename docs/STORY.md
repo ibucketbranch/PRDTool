@@ -1,4 +1,4 @@
-# FileRoomba: The Product Story
+# PRDTool: The Product Story
 
 ## The Problem
 
@@ -92,7 +92,7 @@ from, what it is related to, and where it belongs.
 
 ## The Product
 
-FileRoomba is a document intelligence platform. It has three layers that build on
+PRDTool is a document intelligence platform. It has three layers that build on
 each other.
 
 ### Layer 1: The Roomba
@@ -246,7 +246,7 @@ cannot be exported to a competitor. It is the product.
 | HotDocs / Documate | Assemble new documents from templates | Manage documents after creation |
 | Notion / Coda | Organize structured notes | Handle unstructured files (PDFs, scans, downloads) |
 
-FileRoomba occupies the gap between consumer storage (dumb buckets) and enterprise
+PRDTool occupies the gap between consumer storage (dumb buckets) and enterprise
 ECM (overbuilt, overpriced). Nobody else sits here.
 
 ---

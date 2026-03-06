@@ -1,6 +1,6 @@
-# FileRoomba Architecture
+# PRDTool Architecture
 
-> Technical architecture for the FileRoomba document intelligence platform.
+> Technical architecture for the PRDTool document intelligence platform.
 > Covers current state (Phase 1) and target state (Phases 2-3).
 
 ## System Overview
@@ -266,7 +266,7 @@ Phase 2 stack
 
 ### Server Identity
 
-- **Name**: `fileroomba`
+- **Name**: `prdtool`
 - **Transport**: stdio
 - **Config location**: `.organizer/agent_config.json`
 
@@ -284,13 +284,13 @@ Phase 2 stack
 
 ### Claude Desktop Configuration
 
-To connect Claude Desktop to the FileRoomba MCP server, add to
+To connect Claude Desktop to the PRDTool MCP server, add to
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "fileroomba": {
+    "prdtool": {
       "command": "python3",
       "args": ["-m", "organizer", "--mcp-server"],
       "cwd": "/Users/michaelvalderrama/Websites/PRDTool"

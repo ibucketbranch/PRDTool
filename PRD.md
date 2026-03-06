@@ -735,6 +735,84 @@ A web-based dashboard that:
 
 ---
 
+### Phase 17: Search Upgrade (Use Existing FTS Index)
+
+> The dashboard search uses `ILIKE` (substring matching) for all queries, which means
+> no fuzzy matching, no relevance ranking, and sequential scans on every query. The
+> Supabase database already has a full-text search index (`idx_documents_text_search`)
+> using `to_tsvector('english', file_name || ai_summary || extracted_text)` that is
+> built and idle. This task switches search to use it.
+
+- [ ] Update `searchDocuments()` in `dashboard/lib/supabase.ts`
+  - Replace `.ilike()` calls with Supabase `.textSearch()` using the existing
+    `to_tsvector` index
+  - Gets: stemming ("taxes" finds "tax"), relevance ranking, boolean operators
+  - Falls back to `ilike` for short queries (< 3 chars) where FTS is less useful
+- [ ] Update `naturalLanguageSearch()` in `dashboard/lib/supabase.ts`
+  - Use `to_tsquery()` for text terms instead of `.ilike()` on multiple columns
+  - Move organization filtering to SQL using `entities` JSONB column
+    (`.contains()`) instead of post-filtering in memory
+  - Use `ts_rank()` to order results by relevance
+- [ ] Add debouncing to Document Browser search input (`dashboard/app/browse/page.tsx`)
+  - 300ms debounce on the search input `onChange` handler
+  - Prevents firing a Supabase query on every keystroke
+- [ ] Add pagination to Search page results (`dashboard/app/search/page.tsx`)
+  - Replace hard cap of 50 results with paginated results (20 per page)
+  - Add "Load more" or page navigation
+- [ ] Add global search bar to dashboard layout
+  - Single search input in the header/sidebar that queries documents and file DNA
+  - Results grouped by source (Documents, File DNA)
+  - Navigates to full search page for expanded results
+
+### Phase 18: macOS Menu Bar App (Dashboard Native Shell)
+
+> The dashboard currently runs as a Next.js dev server at `localhost:3100` and is
+> accessed via browser. This task wraps it in a lightweight native macOS menu bar
+> app so it feels like a permanent part of the system -- always one click away,
+> no browser tab required.
+>
+> **Approach:** Native Swift shell using `NSStatusItem` (menu bar icon) and
+> `WKWebView` (Safari's engine, already on macOS). The existing Next.js dashboard
+> remains the UI; the native app is a thin ~100-line wrapper that loads it in a
+> native window.
+
+- [ ] Create `dashboard-app/` directory at project root
+- [ ] Create `dashboard-app/Sources/main.swift` -- app entry point
+  - Initialize `NSApplication`, set delegate, run event loop
+- [ ] Create `dashboard-app/Sources/AppDelegate.swift` -- menu bar + WebView
+  - `NSStatusItem` with `folder.badge.gearshape` SF Symbol icon
+  - Menu: "Open Dashboard", "Refresh", separator, "Quit PRD Dashboard"
+  - `NSWindow` (1280x820) with `WKWebView` loading `http://localhost:3100`
+  - Window close (red button) hides instead of quitting (standard menu bar behavior)
+  - `WKNavigationDelegate`: if server is not running, show a styled error page
+    with "Dashboard Not Running" message and retry button
+  - Enable WebKit developer extras for right-click inspect
+- [ ] Create `dashboard-app/Info.plist` with `LSUIElement = true` (menu-bar-only,
+  no Dock icon)
+- [ ] Create `dashboard-app/build.sh` -- compile and bundle script
+  - Compile Swift sources with `swiftc` (frameworks: Cocoa, WebKit)
+  - Create `.app` bundle structure (`Contents/MacOS/`, `Contents/Info.plist`)
+  - Output to `dashboard-app/build/PRDDashboard.app`
+- [ ] Build, launch, and verify:
+  - Menu bar icon appears
+  - Clicking "Open Dashboard" opens window with dashboard loaded
+  - Closing window hides it (app stays in menu bar)
+  - "Refresh" reloads the WebView
+  - "Quit" terminates the app
+  - If dashboard server is not running, error page displays with retry
+- [ ] Optional: Create `com.prdtool.dashboard.plist` launchd service for auto-start
+  on login (like the Python agent)
+
+#### Technical Notes
+
+- Uses WebKit (Safari's engine), already on macOS -- no bundled browser, ~10MB app
+- Dashboard port pinned to 3100 to avoid conflicts with dev work on 3000
+- Supabase auth URLs already updated to 3100 in `supabase/config.toml`
+- The Next.js server must be running for the WebView to load; the error page
+  handles the case where it isn't
+
+---
+
 ## Success Criteria
 - ✅ Shows file type counts (categories) with visual charts
 - ✅ Natural language search works: "Show me a file that is a verizon bill from 2024?"
@@ -756,6 +834,8 @@ A web-based dashboard that:
 - ✅ Example: Empty "Resume" folder → checks if files were correctly moved, offers restore if folder was right location
 - ✅ Uses existing Supabase database (no new analysis needed)
 - ✅ Fast and responsive UI
+- Dashboard search uses FTS index with stemming and relevance ranking
+- Menu bar app launches, displays dashboard in native window, handles server-down
 
 ## Example Queries to Support
 - "Show me a file that is a verizon bill from 2024?"

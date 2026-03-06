@@ -7,7 +7,7 @@ import pytest
 
 from organizer.mcp_server import (
     _load_config,
-    create_fileroomba_mcp,
+    create_prdtool_mcp,
 )
 
 
@@ -30,14 +30,14 @@ def test_load_config_exists(tmp_path: Path) -> None:
 
 
 def test_create_mcp_returns_server(tmp_path: Path) -> None:
-    """create_fileroomba_mcp returns FastMCP when SDK installed."""
+    """create_prdtool_mcp returns FastMCP when SDK installed."""
     config_path = tmp_path / "agent_config.json"
     config_path.write_text(
         json.dumps({"base_path": str(tmp_path)}),
         encoding="utf-8",
     )
     try:
-        mcp = create_fileroomba_mcp(config_path)
+        mcp = create_prdtool_mcp(config_path)
         assert mcp is not None
         assert hasattr(mcp, "tool")
     except ImportError as e:

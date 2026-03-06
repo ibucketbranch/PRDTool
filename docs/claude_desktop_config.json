@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "fileroomba": {
+    "prdtool": {
       "command": "python3",
       "args": [
         "-m",
