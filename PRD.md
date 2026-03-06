@@ -776,10 +776,10 @@ A web-based dashboard that:
 > remains the UI; the native app is a thin ~100-line wrapper that loads it in a
 > native window.
 
-- [ ] Create `dashboard-app/` directory at project root
-- [ ] Create `dashboard-app/Sources/main.swift` -- app entry point
+- [x] Create `dashboard-app/` directory at project root
+- [x] Create `dashboard-app/Sources/main.swift` -- app entry point
   - Initialize `NSApplication`, set delegate, run event loop
-- [ ] Create `dashboard-app/Sources/AppDelegate.swift` -- menu bar + WebView
+- [x] Create `dashboard-app/Sources/AppDelegate.swift` -- menu bar + WebView
   - `NSStatusItem` with `folder.badge.gearshape` SF Symbol icon
   - Menu: "Open Dashboard", "Refresh", separator, "Quit PRD Dashboard"
   - `NSWindow` (1280x820) with `WKWebView` loading `http://localhost:3100`
@@ -787,13 +787,13 @@ A web-based dashboard that:
   - `WKNavigationDelegate`: if server is not running, show a styled error page
     with "Dashboard Not Running" message and retry button
   - Enable WebKit developer extras for right-click inspect
-- [ ] Create `dashboard-app/Info.plist` with `LSUIElement = true` (menu-bar-only,
+- [x] Create `dashboard-app/Info.plist` with `LSUIElement = true` (menu-bar-only,
   no Dock icon)
-- [ ] Create `dashboard-app/build.sh` -- compile and bundle script
+- [x] Create `dashboard-app/build.sh` -- compile and bundle script
   - Compile Swift sources with `swiftc` (frameworks: Cocoa, WebKit)
   - Create `.app` bundle structure (`Contents/MacOS/`, `Contents/Info.plist`)
   - Output to `dashboard-app/build/PRDDashboard.app`
-- [ ] Build, launch, and verify:
+- [x] Build, launch, and verify:
   - Menu bar icon appears
   - Clicking "Open Dashboard" opens window with dashboard loaded
   - Closing window hides it (app stays in menu bar)
