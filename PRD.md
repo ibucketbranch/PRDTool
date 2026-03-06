@@ -593,7 +593,7 @@ A web-based dashboard that:
   - Domain detection result with confidence and evidence list
   - Browse generated rules: pattern, destination, confidence; toggle individual rules on/off
   - "Re-scan" button to refresh the structure snapshot
-- [ ] Add tests
+- [x] Add tests
   - `test_structure_analyzer.py`: tree walking, metadata extraction, ignore patterns, depth limiting
   - `test_learning_agent.py`: T2 domain detection (mock LLM), T2 rule generation (mock LLM), structure narration, learned rule merge priority (learned > override > built-in > hardcoded)
 

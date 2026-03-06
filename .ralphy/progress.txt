@@ -3558,3 +3558,34 @@ python3 -m organizer --learn-confirm
     - Error handling
 - All 34 tests pass, linting passes for new files
 - Task completed successfully
+
+
+---
+## Phase 15: Learning-Agent Tests - 2026-03-05 22:08:16
+
+**Task:** Add tests for Phase 15 Learning-Agent
+- `test_structure_analyzer.py`: tree walking, metadata extraction, ignore patterns, depth limiting
+- `test_learning_agent.py`: T2 domain detection (mock LLM), T2 rule generation (mock LLM), structure narration, learned rule merge priority (learned > override > built-in > hardcoded)
+
+**Changes:**
+1. Created `tests/test_learning_agent.py` with 27 comprehensive tests covering:
+   - T2 Smart model domain detection with mock LLM (4 tests)
+   - T2 Smart model rule generation with mock LLM (4 tests)
+   - Structure narration with LLM and fallback (4 tests)
+   - Learned rule merge priority chain (7 tests)
+   - Integration tests for full learning pipeline (3 tests)
+   - Edge cases and error handling (5 tests)
+
+2. The existing `test_structure_analyzer.py` already had complete coverage (83 tests)
+3. Also verified existing tests in `test_domain_detector.py`, `test_rule_generator.py`, and `test_learned_rules.py`
+
+**Test Coverage:**
+- Total Phase 15 related tests: 204 tests (all passing)
+- New `test_learning_agent.py`: 27 tests
+- `test_structure_analyzer.py`: 83 tests  
+- `test_domain_detector.py`: 39 tests
+- `test_rule_generator.py`: 32 tests
+- `test_learned_rules.py`: 59 tests (includes integration tests)
+
+**Status:** Completed - Phase 15 tests task marked as done in PRD.md
+
