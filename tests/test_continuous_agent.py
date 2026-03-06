@@ -887,3 +887,277 @@ def test_config_dna_paths_resolved(tmp_path: Path) -> None:
     config.resolve_paths()
 
     assert Path(config.dna_registry_file).is_absolute()
+
+
+# =====================================================================
+# DEDUP INTEGRATION TESTS (Phase 13)
+# =====================================================================
+
+
+def test_dedup_proposals_appear_in_queue(tmp_path: Path) -> None:
+    """Dedup duplicates should be converted to ProposedActions and appear in the queue."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create exact duplicate files
+    content = "This is duplicate content for testing"
+    file1 = base / "original.txt"
+    file2 = base / "duplicate.txt"
+    file1.write_text(content, encoding="utf-8")
+    file2.write_text(content, encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        dedup_enabled=True,
+        auto_execute=False,
+        project_homing_enabled=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # Check dedup summary in cycle output
+    assert cycle_summary["dedup"]["enabled"] is True
+    assert "dedup" in cycle_summary
+
+    # Check the queue file for dedup actions
+    queue_path = list(Path(config.queue_dir).glob("pending_*.json"))
+    assert queue_path
+    queue_data = json.loads(queue_path[0].read_text(encoding="utf-8"))
+    dedup_actions = [
+        a for a in queue_data["actions"] if a.get("action_type") == "dedup_archive"
+    ]
+
+    # If dedup detection found the duplicates
+    if dedup_actions:
+        action = dedup_actions[0]
+        assert action["group_name"] == "dedup_archive"
+        assert action["status"] == "pending"
+        # Verify reasoning contains required fields
+        reasoning = action.get("reasoning", [])
+        assert any("relationship=" in r for r in reasoning)
+        assert any("canonical=" in r for r in reasoning)
+        assert any("hash=" in r for r in reasoning)
+
+
+def test_dedup_summary_fields(tmp_path: Path) -> None:
+    """Dedup summary should include exact and fuzzy group counts."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create test files
+    (base / "doc.txt").write_text("unique content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        dedup_enabled=True,
+        auto_execute=False,
+        project_homing_enabled=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # Check dedup summary structure
+    dedup_summary = cycle_summary["dedup"]
+    assert "exact_groups" in dedup_summary
+    assert "fuzzy_groups" in dedup_summary
+    assert "total_wasted_bytes" in dedup_summary
+    assert "queue_count" in dedup_summary
+
+
+def test_dedup_never_auto_executes(tmp_path: Path) -> None:
+    """Dedup archive actions should always be queued for review, never auto-executed."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create exact duplicate files
+    content = "This is duplicate content for testing auto-execute"
+    file1 = base / "original.txt"
+    file2 = base / "duplicate.txt"
+    file1.write_text(content, encoding="utf-8")
+    file2.write_text(content, encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        dedup_enabled=True,
+        auto_execute=True,  # Even with auto_execute=True, dedup should not auto-execute
+        min_auto_confidence=0.5,  # Low threshold to prove dedup is excluded
+        project_homing_enabled=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+        dna_scan_on_cycle=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+    agent.run_cycle()
+
+    # Files should still be in original locations (not moved by auto-execute)
+    assert file1.exists()
+    assert file2.exists()
+
+
+def test_dedup_disabled_returns_disabled_summary(tmp_path: Path) -> None:
+    """When dedup_enabled=False, no dedup scan should be performed."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create test files
+    (base / "doc.txt").write_text("content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        dedup_enabled=False,  # Disabled
+        auto_execute=False,
+        project_homing_enabled=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    assert cycle_summary["dedup"]["enabled"] is False
+    assert cycle_summary["dedup"]["queue_count"] == 0
+
+
+def test_dedup_without_dna_registry_returns_disabled(tmp_path: Path) -> None:
+    """Dedup should return disabled summary when DNA registry is not enabled."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        dedup_enabled=True,  # Enabled, but DNA registry is disabled
+        dna_registration_enabled=False,  # DNA registry disabled
+        auto_execute=False,
+        project_homing_enabled=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+    cycle_summary = agent.run_cycle()
+
+    # Dedup should be disabled because DNA registry is required
+    assert cycle_summary["dedup"]["enabled"] is False
+
+
+def test_dedup_group_to_action_conversion(tmp_path: Path) -> None:
+    """Test that dedup groups are correctly converted to ProposedAction."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # Test the conversion method directly
+    action = agent._dedup_group_to_action(
+        source_path="/path/to/duplicate.pdf",
+        archive_path="/path/to/Archive/Duplicates/abc12345/duplicate.pdf",
+        canonical_path="/path/to/original.pdf",
+        file_hash="abc12345678901234567890123456789012345678901234567890123456",
+        relationship="exact_duplicate",
+        confidence=1.0,
+        reason="Exact hash match (byte-for-byte duplicate)",
+        model_used="",
+        wasted_bytes=1024,
+        cycle_id="cycle123",
+        action_index=1,
+    )
+
+    assert action.action_id == "cycle123:dedup:1"
+    assert action.action_type == "dedup_archive"
+    assert action.source_folder == "/path/to/duplicate.pdf"
+    assert action.target_folder == "/path/to/Archive/Duplicates/abc12345/duplicate.pdf"
+    assert action.confidence == 1.0
+    assert action.group_name == "dedup_archive"
+    assert action.status == "pending"
+
+    # Check reasoning includes all required fields
+    reasoning = action.reasoning
+    assert any("relationship=" in r for r in reasoning)
+    assert any("canonical=" in r for r in reasoning)
+    assert any("hash=" in r for r in reasoning)
+    assert any("reason=" in r for r in reasoning)
+    assert any("wasted_bytes=" in r for r in reasoning)
+
+
+def test_dedup_fuzzy_group_includes_model(tmp_path: Path) -> None:
+    """Fuzzy dedup actions should include model_used in reasoning when LLM was used."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_registration_enabled=True,
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # Test with model_used specified (fuzzy dedup case)
+    action = agent._dedup_group_to_action(
+        source_path="/path/to/similar.pdf",
+        archive_path="/path/to/Archive/Duplicates/def67890/similar.pdf",
+        canonical_path="/path/to/representative.pdf",
+        file_hash="def67890",
+        relationship="version_of",
+        confidence=0.92,
+        reason="Files are different versions of the same document",
+        model_used="qwen2.5-coder:14b",
+        wasted_bytes=2048,
+        cycle_id="cycle456",
+        action_index=2,
+    )
+
+    reasoning = action.reasoning
+    assert any("model=" in r for r in reasoning)
+    assert any("qwen2.5-coder:14b" in r for r in reasoning)

@@ -492,7 +492,7 @@ A web-based dashboard that:
   - `find_fuzzy_duplicates(dna_registry, llm_client, threshold=0.85) -> list[DuplicateGroup]`: for candidate pairs with similar filenames, call **T2 Smart**:
     `"Are '{file_a}' (preview: '{content_a}') and '{file_b}' (preview: '{content_b}') duplicates, versions, or unrelated? Reply JSON {relationship: exact_duplicate|version_of|related|unrelated, confidence, reason}"`
   - Dedup never deletes — moves duplicates to `Archive/Duplicates/{hash_prefix}/`
-- [ ] Add dedup step to agent cycle
+- [x] Add dedup step to agent cycle
   - After scatter detection, run dedup; add proposals as `ProposedAction` with `action_type="dedup_archive"`
   - Always queue for review (never auto-execute dedup)
 - [ ] Create `organizer/relationship_linker.py` module

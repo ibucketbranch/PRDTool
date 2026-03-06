@@ -27,6 +27,7 @@ CANONICAL_ROOTS = frozenset({
 })
 
 from organizer.consolidation_planner import ConsolidationPlan, ConsolidationPlanner
+from organizer.dedup_engine import DedupEngine
 from organizer.dry_run_validator import validate_dry_run
 from organizer.file_dna import DNARegistry
 from organizer.file_operations import execute_consolidation_plan
@@ -386,6 +387,20 @@ class ContinuousOrganizerAgent:
         scatter_summary, scatter_actions = self._process_scatter(cycle_id)
         proposed_actions.extend(scatter_actions)
 
+        # Dedup detection (after scatter, before writing queue)
+        # Dedup proposals are always queued for review (never auto-executed)
+        if self.config.dedup_enabled:
+            dedup_summary, dedup_actions = self._run_dedup_scan(cycle_id)
+            proposed_actions.extend(dedup_actions)
+        else:
+            dedup_summary = {
+                "enabled": False,
+                "exact_groups": 0,
+                "fuzzy_groups": 0,
+                "total_wasted_bytes": 0,
+                "queue_count": 0,
+            }
+
         queue_path = Path(self.config.queue_dir) / f"pending_{cycle_id}.json"
         queue_path.write_text(
             json.dumps(
@@ -450,12 +465,6 @@ class ContinuousOrganizerAgent:
 
         # Update DNA summary with inbox registrations (set in _process_inbox)
         dna_summary["inbox_registered"] = inbox_summary.get("dna_registered", 0)
-
-        # Dedup scan (optional)
-        if self.config.dedup_enabled:
-            dedup_summary = self._run_dedup_scan(cycle_id)
-        else:
-            dedup_summary = {"enabled": False, "groups_found": 0, "wasted_bytes": 0}
 
         cycle_summary = {
             "cycle_id": cycle_id,
@@ -845,27 +854,158 @@ class ContinuousOrganizerAgent:
             actions,
         )
 
-    def _run_dedup_scan(self, cycle_id: str) -> dict[str, Any]:
-        """Run dedup scan on base path. Returns summary."""
-        try:
-            from organizer.dedup_engine import DedupEngine
+    def _run_dedup_scan(
+        self, cycle_id: str
+    ) -> tuple[dict[str, Any], list[ProposedAction]]:
+        """Run dedup scan and return (summary, proposed_actions).
 
-            engine = DedupEngine(self.config.base_path)
-            engine.scan(max_files=self.config.dedup_max_files)
-            groups = engine.get_groups()
-            wasted = engine.report_wasted_storage()
-            return {
+        Dedup detection identifies duplicate files (exact hash matches and fuzzy
+        similarity). All dedup actions are queued for review - never auto-executed.
+
+        Duplicates are proposed to be archived to Archive/Duplicates/{hash_prefix}/.
+        """
+        if self._dna_registry is None:
+            return (
+                {
+                    "enabled": False,
+                    "exact_groups": 0,
+                    "fuzzy_groups": 0,
+                    "total_wasted_bytes": 0,
+                    "queue_count": 0,
+                },
+                [],
+            )
+
+        # Get LLM components if available (same as used for DNA registry)
+        llm_client = None
+        model_router = None
+        prompt_registry = None
+        try:
+            from organizer.llm_client import LLMClient
+            from organizer.model_router import ModelRouter
+            from organizer.prompt_registry import PromptRegistry
+
+            llm_client = LLMClient()
+            model_router = ModelRouter(llm_client)
+            prompt_registry = PromptRegistry()
+        except Exception:
+            pass
+
+        # Build archive directory path
+        archive_dir = Path(self.config.base_path) / "Archive"
+
+        engine = DedupEngine(
+            dna_registry=self._dna_registry,
+            archive_dir=archive_dir,
+            llm_client=llm_client,
+            model_router=model_router,
+            prompt_registry=prompt_registry,
+            use_llm=llm_client is not None,
+        )
+        report = engine.run()
+
+        exact_groups = engine.get_exact_groups()
+        fuzzy_groups = engine.get_fuzzy_groups()
+
+        # Convert duplicate groups to proposed actions (always queue for review)
+        actions: list[ProposedAction] = []
+
+        # Add actions for exact duplicates
+        for group in exact_groups:
+            for dup_path in group.duplicate_paths:
+                archive_path = engine.get_archive_path_for(dup_path, group.sha256_hash)
+                actions.append(
+                    self._dedup_group_to_action(
+                        source_path=dup_path,
+                        archive_path=archive_path,
+                        canonical_path=group.canonical_path,
+                        file_hash=group.sha256_hash,
+                        relationship="exact_duplicate",
+                        confidence=1.0,  # Exact hash match = 100% confidence
+                        reason="Exact hash match (byte-for-byte duplicate)",
+                        model_used="",
+                        wasted_bytes=group.wasted_bytes,
+                        cycle_id=cycle_id,
+                        action_index=len(actions) + 1,
+                    )
+                )
+
+        # Add actions for fuzzy duplicates
+        for group in fuzzy_groups:
+            for similar_path in group.similar_paths:
+                # For fuzzy duplicates, use representative file's archive path
+                # We need to compute the hash for this file from the registry
+                similar_dna = self._dna_registry.get_by_path(similar_path)
+                file_hash = similar_dna.sha256_hash if similar_dna else "unknown"
+                archive_path = engine.get_archive_path_for(similar_path, file_hash)
+                actions.append(
+                    self._dedup_group_to_action(
+                        source_path=similar_path,
+                        archive_path=archive_path,
+                        canonical_path=group.representative_path,
+                        file_hash=file_hash,
+                        relationship=group.relationship,
+                        confidence=group.confidence,
+                        reason=group.reason,
+                        model_used=group.model_used,
+                        wasted_bytes=group.wasted_bytes,
+                        cycle_id=cycle_id,
+                        action_index=len(actions) + 1,
+                    )
+                )
+
+        return (
+            {
                 "enabled": True,
-                "groups_found": len(groups),
-                "wasted_bytes": wasted,
-            }
-        except Exception as e:
-            return {
-                "enabled": True,
-                "groups_found": 0,
-                "wasted_bytes": 0,
-                "error": str(e),
-            }
+                "exact_groups": report["exact_count"],
+                "fuzzy_groups": report["fuzzy_count"],
+                "exact_file_count": report["exact_file_count"],
+                "fuzzy_file_count": report["fuzzy_file_count"],
+                "total_wasted_bytes": report["total_wasted_bytes"],
+                "queue_count": len(actions),
+            },
+            actions,
+        )
+
+    def _dedup_group_to_action(
+        self,
+        source_path: str,
+        archive_path: str,
+        canonical_path: str,
+        file_hash: str,
+        relationship: str,
+        confidence: float,
+        reason: str,
+        model_used: str,
+        wasted_bytes: int,
+        cycle_id: str,
+        action_index: int,
+    ) -> ProposedAction:
+        """Convert a dedup group entry to a ProposedAction for queue.
+
+        Dedup actions are always queued for review (never auto-executed).
+        """
+        reasoning = [
+            f"relationship={relationship}",
+            f"canonical={canonical_path}",
+            f"hash={file_hash[:16]}..." if len(file_hash) > 16 else f"hash={file_hash}",
+            f"reason={reason}",
+            f"wasted_bytes={wasted_bytes}",
+        ]
+        if model_used:
+            reasoning.append(f"model={model_used}")
+
+        return ProposedAction(
+            action_id=f"{cycle_id}:dedup:{action_index}",
+            created_at=_now_iso(),
+            source_folder=source_path,
+            target_folder=archive_path,
+            group_name="dedup_archive",
+            confidence=confidence,
+            reasoning=reasoning,
+            action_type="dedup_archive",
+            status="pending",
+        )
 
     def _scatter_violation_to_action(
         self, violation: ScatterViolation, cycle_id: str, action_index: int

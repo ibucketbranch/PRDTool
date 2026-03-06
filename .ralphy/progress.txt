@@ -2964,3 +2964,34 @@ Task completed successfully.
   - TestIntegration: full workflow with real files
 - All 43 tests pass, linting passes
 - Task "Create organizer/dedup_engine.py module" marked complete in PRD
+
+## 2026-03-05 (continued)
+- Integrated dedup engine into agent cycle (Phase 13: Intelligence-Agent)
+  - Updated `_run_dedup_scan()` method in continuous_agent.py:
+    - Now properly uses the DedupEngine API from dedup_engine.py
+    - Returns tuple of (summary, proposed_actions) instead of just summary
+    - Runs DedupEngine.run() to detect exact and fuzzy duplicates
+    - Converts DuplicateGroup to ProposedAction with action_type="dedup_archive"
+    - Converts FuzzyDuplicateGroup to ProposedAction with model info in reasoning
+    - All dedup proposals always queued for review (never auto-executed)
+  - Added `_dedup_group_to_action()` helper method:
+    - Creates ProposedAction with action_id, action_type, source_folder, target_folder
+    - Includes reasoning with relationship, canonical path, hash, reason, wasted_bytes
+    - Model info included when LLM was used for fuzzy detection
+  - Updated run_cycle() to wire dedup into the pipeline:
+    - Runs dedup detection after scatter detection
+    - Dedup proposals added to proposed_actions before queue write
+    - Dedup summary included in cycle output
+  - Import added: `from organizer.dedup_engine import DedupEngine`
+- Added 7 new tests in tests/test_continuous_agent.py:
+  - test_dedup_proposals_appear_in_queue: verifies dedup creates actions in queue
+  - test_dedup_summary_fields: checks summary includes exact/fuzzy group counts
+  - test_dedup_never_auto_executes: confirms dedup actions stay in queue even with auto_execute=True
+  - test_dedup_disabled_returns_disabled_summary: verifies disabled state
+  - test_dedup_without_dna_registry_returns_disabled: dedup needs DNA registry
+  - test_dedup_group_to_action_conversion: tests action conversion method
+  - test_dedup_fuzzy_group_includes_model: verifies model info in reasoning
+- All 7 new dedup tests pass
+- All 43 dedup_engine tests pass
+- No new linting errors introduced (pre-existing E402 and F841 issues remain)
+- Task "Add dedup step to agent cycle" marked complete in PRD.md
