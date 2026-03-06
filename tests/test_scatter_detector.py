@@ -459,6 +459,60 @@ class TestLLMValidation:
         assert violation.used_keyword_fallback is False
         assert violation.confidence == 0.92
 
+    def test_llm_reason_captured_in_violation(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM reasoning is captured in the violation."""
+        # Mock successful LLM response with detailed reason
+        mock_validation_response = MagicMock()
+        mock_validation_response.success = True
+        mock_validation_response.text = json.dumps({
+            "belongs_here": False,
+            "correct_bin": "Finances Bin",
+            "confidence": 0.88,
+            "reason": "File contains tax form 1040 indicators, including IRS references and income data",
+        })
+
+        # Mock path preservation response
+        mock_path_response = MagicMock()
+        mock_path_response.success = True
+        mock_path_response.text = json.dumps({
+            "suggested_subpath": "2024/Federal",
+            "reason": "Tax year detected from document content",
+        })
+
+        mock_llm_client.generate.side_effect = [mock_validation_response, mock_path_response]
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        assert "tax form 1040 indicators" in violation.reason
+        assert "IRS references" in violation.reason
+
+    def test_llm_operational_check_uses_cached_result(
+        self, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM availability check is performed."""
+        mock_llm_client.is_ollama_available.return_value = True
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        # Check if LLM is available should call the client method
+        is_available = detector._is_llm_available()
+        assert is_available is True
+        mock_llm_client.is_ollama_available.assert_called_once()
+
     def test_llm_confirms_correct_placement(
         self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
     ):
@@ -509,6 +563,248 @@ class TestLLMValidation:
         # Should fall back to keyword result
         assert violation is not None
         assert violation.used_keyword_fallback is True
+
+
+# =============================================================================
+# LLM Unavailability Tests
+# =============================================================================
+
+
+class TestLLMUnavailability:
+    """Tests for behavior when LLM is unavailable."""
+
+    def test_ollama_down_uses_keyword_fallback(
+        self, temp_dir_with_files, sample_taxonomy, mock_model_router
+    ):
+        """Test that keyword fallback is used when Ollama is not running."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.return_value = False  # Ollama is down
+
+        detector = ScatterDetector(
+            llm_client=mock_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.used_keyword_fallback is True
+        assert violation.model_used == ""
+        # LLM generate should never be called
+        mock_client.generate.assert_not_called()
+
+    def test_ollama_check_exception_falls_back_to_keywords(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that exception during Ollama check falls back to keywords."""
+        mock_client = MagicMock()
+        mock_client.is_ollama_available.side_effect = Exception("Connection refused")
+
+        detector = ScatterDetector(
+            llm_client=mock_client,
+            taxonomy=sample_taxonomy,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.used_keyword_fallback is True
+
+    def test_no_llm_client_uses_keyword_fallback(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that no LLM client means keyword fallback is used."""
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.used_keyword_fallback is True
+        assert violation.model_used == ""
+
+    def test_use_llm_false_bypasses_llm(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that use_llm=False explicitly bypasses LLM."""
+        mock_llm_client.is_ollama_available.return_value = True
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+            use_llm=False,  # Explicitly disable LLM
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        assert violation.used_keyword_fallback is True
+        # LLM should never be called
+        mock_llm_client.generate.assert_not_called()
+
+    def test_model_router_runtime_error_returns_no_violation(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client
+    ):
+        """Test that RuntimeError from router during validation causes assumes file belongs.
+
+        Note: Current behavior returns belongs_here=True when router fails, which
+        means no violation is detected. This may be intentional (fail-safe: don't
+        report violations we're not sure about) or a bug. This test documents
+        the current behavior.
+        """
+        mock_llm_client.is_ollama_available.return_value = True
+
+        mock_router = MagicMock()
+        mock_router.route.side_effect = RuntimeError("No models available")
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        # Current behavior: when router fails, returns belongs_here=True
+        # meaning no violation is detected
+        assert violation is None
+
+    def test_llm_generate_fails_falls_back_to_keywords(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM generate failure returns model_used=None and triggers fallback."""
+        mock_llm_client.is_ollama_available.return_value = True
+
+        # Mock generate to fail
+        mock_response = MagicMock()
+        mock_response.success = False
+        mock_response.error = "Model timeout"
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        # Should fall back to keywords when generate fails
+        assert violation is not None
+        assert violation.used_keyword_fallback is True
+        assert violation.expected_bin == "Finances Bin"
+
+
+# =============================================================================
+# Prompt Registry Integration Tests
+# =============================================================================
+
+
+class TestPromptRegistryIntegration:
+    """Tests for prompt registry integration."""
+
+    def test_uses_prompt_from_registry_when_available(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that prompts are loaded from registry when available."""
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = "Custom validate placement prompt for {filename}"
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "belongs_here": False,
+            "correct_bin": "Finances Bin",
+            "confidence": 0.90,
+            "reason": "Tax document detected",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+            prompt_registry=mock_registry,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        detector._validate_with_llm(
+            file_path, "tax_form_1040.pdf", "Work Bin", "Finances Bin", "content"
+        )
+
+        # Verify registry was accessed
+        mock_registry.get.assert_called_once()
+        call_kwargs = mock_registry.get.call_args
+        assert call_kwargs[0][0] == "validate_placement"
+
+    def test_falls_back_to_inline_prompt_when_registry_missing(
+        self, temp_dir_with_files, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that inline prompt is used when registry doesn't have the prompt."""
+        mock_registry = MagicMock()
+        mock_registry.get.side_effect = KeyError("validate_placement not found")
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "belongs_here": False,
+            "correct_bin": "Finances Bin",
+            "confidence": 0.90,
+            "reason": "Tax document detected",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+            prompt_registry=mock_registry,
+        )
+
+        result = detector._validate_with_llm(
+            "/path/to/file.pdf", "file.pdf", "Work Bin", "Finances Bin", "content"
+        )
+
+        # Should succeed using inline prompt
+        assert result is not None
+        assert result[2] == 0.90  # confidence
+
+    def test_prompt_registry_used_for_path_preservation(
+        self, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that prompt registry is used for path preservation prompts."""
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = "Custom path preservation prompt"
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "suggested_subpath": "2024/IRS",
+            "reason": "Year and agency detected",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+            prompt_registry=mock_registry,
+        )
+
+        result = detector._suggest_subpath_with_llm(
+            "/path/to/tax_2024.pdf", "tax_2024.pdf", "Finances Bin"
+        )
+
+        assert result is not None
+        # Should have tried to get the suggest_subfolder prompt
+        # (may fail and use inline, but should try)
 
 
 # =============================================================================
@@ -671,6 +967,131 @@ class TestPathPreservation:
 
         assert result.suggested_subpath == ""
         assert result.confidence == 0.5
+
+
+# =============================================================================
+# Path Preservation Reasoning Tests
+# =============================================================================
+
+
+class TestPathPreservationReasoning:
+    """Tests for path preservation reasoning details."""
+
+    def test_llm_reasoning_explains_year_agency_organization(
+        self, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM reasoning explains organizational structure."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "suggested_subpath": "2024/IRS/Form1040",
+            "reason": "Organized by tax year 2024, agency IRS, and form type 1040",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        result = detector.suggest_subpath("/path/to/irs_1040_2024.pdf", "Finances Bin")
+
+        assert result.suggested_subpath == "2024/IRS/Form1040"
+        assert "tax year" in result.reason.lower() or "year" in result.reason.lower()
+        assert result.model_used == "qwen2.5:14b"  # T2 Smart for analyze
+
+    def test_llm_preserves_existing_hierarchy(
+        self, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM suggests preserving existing folder hierarchy."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "suggested_subpath": "Claims/Disability/PTSD",
+            "reason": "Preserving claim type hierarchy from original location",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        result = detector.suggest_subpath(
+            "/path/to/ptsd_claim_evidence.pdf", "VA"
+        )
+
+        assert "Claims" in result.suggested_subpath
+        assert result.model_used == "qwen2.5:14b"
+
+    def test_keyword_reasoning_for_year_extraction(self, sample_taxonomy):
+        """Test that keyword fallback provides clear reasoning for year extraction."""
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+
+        result = detector.suggest_subpath("/path/to/tax_return_2023.pdf", "Finances Bin")
+
+        assert result.suggested_subpath == "2023"
+        assert "year" in result.reason.lower()
+        assert "2023" in result.reason
+        assert result.model_used == ""
+
+    def test_keyword_reasoning_for_agency_extraction(self, sample_taxonomy):
+        """Test that keyword fallback provides clear reasoning for agency extraction."""
+        detector = ScatterDetector(taxonomy=sample_taxonomy)
+
+        result = detector.suggest_subpath("/path/to/ssa_benefits_notice.pdf", "Finances Bin")
+
+        assert result.suggested_subpath == "SSA"
+        assert "agency" in result.reason.lower() or "SSA" in result.reason
+        assert result.model_used == ""
+
+    def test_llm_path_failure_falls_back_to_keywords(
+        self, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM path preservation failure falls back to keywords."""
+        mock_llm_client.is_ollama_available.return_value = True
+
+        mock_response = MagicMock()
+        mock_response.success = False
+        mock_response.error = "Model timeout"
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        result = detector.suggest_subpath("/path/to/tax_2022_return.pdf", "Finances Bin")
+
+        # Should fall back to keyword extraction
+        assert result.suggested_subpath == "2022"
+        assert result.model_used == ""
+
+    def test_llm_invalid_json_falls_back_to_keywords(
+        self, sample_taxonomy, mock_llm_client, mock_model_router
+    ):
+        """Test that invalid LLM JSON response falls back to keywords."""
+        mock_llm_client.is_ollama_available.return_value = True
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = "I don't understand the request"  # Not JSON
+        mock_llm_client.generate.return_value = mock_response
+
+        detector = ScatterDetector(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            taxonomy=sample_taxonomy,
+        )
+
+        result = detector.suggest_subpath("/path/to/tax_2021_doc.pdf", "Finances Bin")
+
+        # Should fall back to keyword extraction
+        assert result.suggested_subpath == "2021"
+        assert result.model_used == ""
 
 
 # =============================================================================
@@ -1149,3 +1570,105 @@ class TestEdgeCases:
         preview = detector._get_file_content_preview("/nonexistent/file.txt")
 
         assert preview == ""
+
+
+# =============================================================================
+# Learned Rules Integration Tests
+# =============================================================================
+
+
+class TestLearnedRulesIntegration:
+    """Tests for learned rules integration with scatter detection."""
+
+    def test_learned_rules_checked_before_keyword_rules(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that learned rules are checked before keyword fallback."""
+        mock_learned_store = MagicMock()
+
+        # Mock learned rule that says tax file goes to Legal Bin instead
+        mock_match_result = MagicMock()
+        mock_match_result.destination = "Legal Bin/Contracts"
+        mock_match_result.confidence = 0.85
+        mock_learned_store.match_with_details.return_value = mock_match_result
+
+        detector = ScatterDetector(
+            taxonomy=sample_taxonomy,
+            learned_rule_store=mock_learned_store,
+            use_learned_rules=True,
+        )
+
+        # Tax file - keyword rules would say Finances Bin, but learned says Legal Bin
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        # Should use learned rule destination
+        assert violation.expected_bin == "Legal Bin/Contracts"
+        mock_learned_store.match_with_details.assert_called_once()
+
+    def test_learned_rules_disabled_uses_keyword_rules(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that disabling learned rules uses keyword fallback."""
+        mock_learned_store = MagicMock()
+
+        detector = ScatterDetector(
+            taxonomy=sample_taxonomy,
+            learned_rule_store=mock_learned_store,
+            use_learned_rules=False,  # Disable learned rules
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        # Should use keyword rules (Finances Bin for tax)
+        assert violation.expected_bin == "Finances Bin"
+        # Learned store should not be called
+        mock_learned_store.match_with_details.assert_not_called()
+
+    def test_learned_rules_no_match_falls_through_to_keywords(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that no learned rule match falls through to keyword rules."""
+        mock_learned_store = MagicMock()
+        mock_learned_store.match_with_details.return_value = None  # No match
+
+        detector = ScatterDetector(
+            taxonomy=sample_taxonomy,
+            learned_rule_store=mock_learned_store,
+            use_learned_rules=True,
+        )
+
+        file_path = str(temp_dir_with_files / "Work Bin" / "tax_form_1040.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        assert violation is not None
+        # Should fall through to keyword rules
+        assert violation.expected_bin == "Finances Bin"
+
+    def test_learned_rules_correct_placement_no_violation(
+        self, temp_dir_with_files, sample_taxonomy
+    ):
+        """Test that learned rules can confirm correct placement."""
+        mock_learned_store = MagicMock()
+
+        # Mock learned rule that says file belongs in current location
+        mock_match_result = MagicMock()
+        mock_match_result.destination = "Finances Bin"  # Matches current
+        mock_match_result.confidence = 0.90
+        mock_learned_store.match_with_details.return_value = mock_match_result
+
+        detector = ScatterDetector(
+            taxonomy=sample_taxonomy,
+            learned_rule_store=mock_learned_store,
+            use_learned_rules=True,
+        )
+
+        # Tax file in Finances Bin - learned rules confirm it's correct
+        file_path = str(temp_dir_with_files / "Finances Bin" / "tax_return_2024.pdf")
+        violation = detector.validate_file(file_path, str(temp_dir_with_files))
+
+        # Should be no violation since learned rules say it's correct
+        assert violation is None

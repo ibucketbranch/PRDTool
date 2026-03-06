@@ -4018,3 +4018,37 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
     - ✅ Keyword fallback when Ollama down
     - ✅ A/B comparison logging
 - Task marked as complete
+
+## 2026-03-05
+- Updated test_scatter_detector.py with comprehensive LLM validation and path preservation tests (Phase 16.6)
+  - Added `TestLLMValidation` new tests:
+    - `test_llm_reason_captured_in_violation`: Verifies LLM reasoning is captured in violations
+    - `test_llm_operational_check_uses_cached_result`: Tests Ollama availability check
+  - Added `TestLLMUnavailability` class (6 tests):
+    - `test_ollama_down_uses_keyword_fallback`: Keyword fallback when Ollama not running
+    - `test_ollama_check_exception_falls_back_to_keywords`: Exception during check
+    - `test_no_llm_client_uses_keyword_fallback`: No LLM client provided
+    - `test_use_llm_false_bypasses_llm`: Explicit LLM bypass
+    - `test_model_router_runtime_error_returns_no_violation`: Router failure behavior
+    - `test_llm_generate_fails_falls_back_to_keywords`: Generate failure triggers fallback
+  - Added `TestPromptRegistryIntegration` class (3 tests):
+    - `test_uses_prompt_from_registry_when_available`: Registry prompt loading
+    - `test_falls_back_to_inline_prompt_when_registry_missing`: Inline fallback
+    - `test_prompt_registry_used_for_path_preservation`: Path preservation prompts
+  - Added `TestPathPreservationReasoning` class (6 tests):
+    - `test_llm_reasoning_explains_year_agency_organization`: LLM reasoning detail
+    - `test_llm_preserves_existing_hierarchy`: Hierarchy preservation
+    - `test_keyword_reasoning_for_year_extraction`: Keyword year extraction reasoning
+    - `test_keyword_reasoning_for_agency_extraction`: Keyword agency extraction reasoning
+    - `test_llm_path_failure_falls_back_to_keywords`: Path preservation failure fallback
+    - `test_llm_invalid_json_falls_back_to_keywords`: Invalid JSON fallback
+  - Added `TestLearnedRulesIntegration` class (4 tests):
+    - `test_learned_rules_checked_before_keyword_rules`: Priority ordering
+    - `test_learned_rules_disabled_uses_keyword_rules`: Disable flag
+    - `test_learned_rules_no_match_falls_through_to_keywords`: Fallthrough behavior
+    - `test_learned_rules_correct_placement_no_violation`: Correct placement confirmation
+- Total: 80 tests pass, linting passes
+- PRD requirements covered:
+  - ✅ LLM validation path
+  - ✅ Path preservation reasoning
+- Task marked complete in PRD.md
