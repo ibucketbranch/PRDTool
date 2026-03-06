@@ -566,7 +566,11 @@ export async function getCategoryStats(
 
 // Search documents using Full-Text Search (FTS) for queries >= 3 chars
 // Falls back to ilike for short queries where FTS is less effective
-export async function searchDocuments(query: string): Promise<{
+export async function searchDocuments(
+  query: string,
+  limit: number = 20,
+  offset: number = 0
+): Promise<{
   documents: Document[];
   error?: string;
 }> {
@@ -586,7 +590,8 @@ export async function searchDocuments(query: string): Promise<{
             `ai_summary.ilike.%${trimmedQuery}%,` +
             `current_path.ilike.%${trimmedQuery}%`
         )
-        .limit(50);
+        .range(offset, offset + limit - 1)
+        .limit(limit);
 
       if (error) {
         return { documents: [], error: error.message };
@@ -599,7 +604,8 @@ export async function searchDocuments(query: string): Promise<{
     // This leverages the GIN index for stemming and relevance ranking
     const { data, error } = await supabase.rpc("search_documents_fts", {
       search_query: trimmedQuery,
-      result_limit: 50,
+      result_limit: limit,
+      result_offset: offset,
     });
 
     if (error) {
@@ -614,7 +620,8 @@ export async function searchDocuments(query: string): Promise<{
             `ai_summary.ilike.%${trimmedQuery}%,` +
             `current_path.ilike.%${trimmedQuery}%`
         )
-        .limit(50);
+        .range(offset, offset + limit - 1)
+        .limit(limit);
 
       if (fallbackError) {
         return { documents: [], error: fallbackError.message };
@@ -1124,7 +1131,8 @@ export async function naturalLanguageSearch(
     years: number[];
     organizations: string[];
   },
-  limit: number = 50
+  limit: number = 20,
+  offset: number = 0
 ): Promise<{
   documents: Document[];
   enrichmentMatches?: number;
@@ -1159,6 +1167,7 @@ export async function naturalLanguageSearch(
                   ? parsedQuery.organizations
                   : null,
               result_limit: limit * 2, // Fetch more to allow for enrichment merging
+              result_offset: offset,
             }
           );
 
@@ -1172,7 +1181,8 @@ export async function naturalLanguageSearch(
               supabase,
               parsedQuery,
               allSearchTerms,
-              limit
+              limit,
+              offset
             );
           }
 
@@ -1188,7 +1198,8 @@ export async function naturalLanguageSearch(
             supabase,
             parsedQuery,
             allSearchTerms,
-            limit
+            limit,
+            offset
           );
         }
       })(),
@@ -1305,7 +1316,8 @@ async function fallbackToIlikeSearch(
     organizations: string[];
   },
   allSearchTerms: string[],
-  limit: number
+  limit: number,
+  offset: number = 0
 ): Promise<{
   data: Document[];
   error: { message: string } | null;
@@ -1349,8 +1361,8 @@ async function fallbackToIlikeSearch(
     query = query.or(textConditions.join(","));
   }
 
-  // Apply limit (fetch more to allow for enrichment merging)
-  query = query.limit(limit * 2);
+  // Apply pagination (fetch more to allow for enrichment merging)
+  query = query.range(offset, offset + limit * 2 - 1).limit(limit * 2);
 
   const { data, error } = await query;
 

@@ -756,7 +756,7 @@ A web-based dashboard that:
 - [x] Add debouncing to Document Browser search input (`dashboard/app/browse/page.tsx`)
   - 300ms debounce on the search input `onChange` handler
   - Prevents firing a Supabase query on every keystroke
-- [ ] Add pagination to Search page results (`dashboard/app/search/page.tsx`)
+- [x] Add pagination to Search page results (`dashboard/app/search/page.tsx`)
   - Replace hard cap of 50 results with paginated results (20 per page)
   - Add "Load more" or page navigation
 - [ ] Add global search bar to dashboard layout

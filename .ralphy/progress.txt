@@ -4270,3 +4270,48 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
     - Fixed pre-existing test for "Modified" vs "Created" header
 - All 52 tests pass (useDebounce: 9, document-browser: 43)
 - Linting passes (only pre-existing errors in other files)
+
+## 2026-03-06
+- Completed Phase 17 task: Add pagination to Search page results
+  - Updated `dashboard/app/api/search/route.ts`:
+    - Added `limit` and `offset` query parameters (default limit=20, max=100)
+    - Added `hasMore` field to response to indicate if more results are available
+    - Updated both simple and natural search modes to use pagination
+  - Created new PostgreSQL migration `supabase/migrations/20260306000003_fts_search_pagination.sql`:
+    - Updated `search_documents_fts()` to accept `result_offset` parameter
+    - Updated `natural_language_search_fts()` to accept `result_offset` parameter
+  - Updated `dashboard/lib/supabase.ts`:
+    - Updated `searchDocuments()` to accept `limit` and `offset` parameters (default 20, 0)
+    - Updated `naturalLanguageSearch()` to accept `limit` and `offset` parameters
+    - Updated `fallbackToIlikeSearch()` to accept `offset` parameter
+    - Added `.range()` calls for proper pagination in ilike fallback paths
+  - Updated `dashboard/app/search/page.tsx`:
+    - Changed from single state `searchResult` to separate `documents` and `searchMeta` states
+    - Added `isLoadingMore` state for "Load More" loading indicator
+    - Added `hasMore` state to track if more results are available
+    - Added refs for `currentQueryRef` and `currentOffsetRef` to track pagination state
+    - Added `fetchResults()` function that supports both initial search and append mode
+    - Added `handleLoadMore()` callback for Load More button
+    - Results now accumulate when loading more pages
+    - Shows "Load More" button when `hasMore` is true
+    - Shows "(more available)" text in results count when more results exist
+    - Resets pagination when new search is performed
+  - Updated `dashboard/__tests__/search-page.test.tsx`:
+    - Updated existing tests to use new API response format (limit, offset, hasMore)
+    - Added 10 new pagination tests:
+      - Shows Load More button when hasMore is true
+      - Does not show Load More button when hasMore is false
+      - Loads more results when Load More is clicked
+      - Shows loading state when loading more results
+      - Hides Load More button when last page is reached
+      - Shows "(more available)" text when hasMore is true
+      - Resets pagination when new search is performed
+      - Updates displayed count as more results are loaded
+  - Updated `dashboard/__tests__/supabase.test.ts`:
+    - Updated mock queries to include `.range()` method for ilike fallback paths
+    - Updated expected `result_limit` values from 50 to 20 (new default)
+    - Updated expected RPC calls to include `result_offset: 0`
+- All 26 search page tests pass
+- All 23 searchDocuments/naturalLanguageSearch tests pass
+- Linting passes (only pre-existing errors in other files)
+- Task marked complete in PRD.md

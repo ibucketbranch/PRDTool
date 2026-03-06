@@ -332,7 +332,8 @@ describe("Supabase Client", () => {
       expect(result.error).toBeUndefined();
       expect(mockSupabaseClient.rpc).toHaveBeenCalledWith("search_documents_fts", {
         search_query: "verizon",
-        result_limit: 50,
+        result_limit: 20,
+        result_offset: 0,
       });
     });
 
@@ -340,6 +341,7 @@ describe("Supabase Client", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: mockSearchResults,
           error: null,
@@ -369,6 +371,7 @@ describe("Supabase Client", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: mockSearchResults,
           error: null,
@@ -399,6 +402,7 @@ describe("Supabase Client", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: null,
           error: { message: "Search failed" },
@@ -416,6 +420,7 @@ describe("Supabase Client", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: null,
           error: { message: "Search failed" },
@@ -439,7 +444,8 @@ describe("Supabase Client", () => {
 
       expect(mockSupabaseClient.rpc).toHaveBeenCalledWith("search_documents_fts", {
         search_query: "document",
-        result_limit: 50,
+        result_limit: 20,
+        result_offset: 0,
       });
     });
 
@@ -453,7 +459,8 @@ describe("Supabase Client", () => {
 
       expect(mockSupabaseClient.rpc).toHaveBeenCalledWith("search_documents_fts", {
         search_query: "verizon",
-        result_limit: 50,
+        result_limit: 20,
+        result_offset: 0,
       });
     });
 
@@ -1035,6 +1042,7 @@ describe("naturalLanguageSearch", () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: mockDocuments,
           error: null,
@@ -1059,6 +1067,7 @@ describe("naturalLanguageSearch", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: mockDocuments,
           error: null,
@@ -1102,6 +1111,7 @@ describe("naturalLanguageSearch", () => {
         "natural_language_search_fts",
         expect.objectContaining({
           result_limit: 50, // 25 * 2
+          result_offset: 0,
         })
       );
     });
@@ -1149,6 +1159,7 @@ describe("naturalLanguageSearch", () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: [mockDocuments[0]],
           error: null,
@@ -1182,6 +1193,7 @@ describe("naturalLanguageSearch", () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: [mockDocuments[0]],
           error: null,
@@ -1212,6 +1224,7 @@ describe("naturalLanguageSearch", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: mockDocuments,
           error: null,
@@ -1244,6 +1257,7 @@ describe("naturalLanguageSearch", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: null,
           error: { message: "Database error" },
@@ -1267,6 +1281,7 @@ describe("naturalLanguageSearch", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: [],
           error: null,
@@ -1298,6 +1313,7 @@ describe("naturalLanguageSearch", () => {
       const mockQuery = {
         select: vi.fn().mockReturnThis(),
         or: vi.fn().mockReturnThis(),
+        range: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({
           data: [],
           error: null,

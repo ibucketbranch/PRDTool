@@ -5,10 +5,22 @@ import {
   buildSearchDescription,
 } from "@/lib/nlp-search";
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const query = searchParams.get("q");
   const mode = searchParams.get("mode") || "natural"; // "natural" or "simple"
+  const limitParam = searchParams.get("limit");
+  const offsetParam = searchParams.get("offset");
+
+  // Parse and validate limit/offset
+  const limit = Math.min(
+    Math.max(1, parseInt(limitParam || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT),
+    MAX_LIMIT
+  );
+  const offset = Math.max(0, parseInt(offsetParam || "0", 10) || 0);
 
   if (!query) {
     return NextResponse.json(
@@ -19,7 +31,7 @@ export async function GET(request: NextRequest) {
 
   // Use simple search for backward compatibility if requested
   if (mode === "simple") {
-    const result = await searchDocuments(query);
+    const result = await searchDocuments(query, limit, offset);
 
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 500 });
@@ -30,6 +42,9 @@ export async function GET(request: NextRequest) {
       mode: "simple",
       documents: result.documents,
       count: result.documents.length,
+      limit,
+      offset,
+      hasMore: result.documents.length === limit,
     });
   }
 
@@ -37,7 +52,7 @@ export async function GET(request: NextRequest) {
   const parsedQuery = parseNaturalLanguageQuery(query);
   const searchDescription = buildSearchDescription(parsedQuery);
 
-  const result = await naturalLanguageSearch(parsedQuery);
+  const result = await naturalLanguageSearch(parsedQuery, limit, offset);
 
   if (result.error) {
     return NextResponse.json({ error: result.error }, { status: 500 });
@@ -56,6 +71,9 @@ export async function GET(request: NextRequest) {
     searchDescription,
     documents: result.documents,
     count: result.documents.length,
+    limit,
+    offset,
+    hasMore: result.documents.length === limit,
     enrichmentMatches: result.enrichmentMatches,
   });
 }

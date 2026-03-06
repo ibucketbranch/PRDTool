@@ -21,6 +21,15 @@ const mockDocument: Document = {
   updated_at: "2024-01-01T00:00:00Z",
 };
 
+// Create multiple mock documents for pagination testing
+const createMockDocuments = (count: number, startIndex: number = 0): Document[] => {
+  return Array.from({ length: count }, (_, i) => ({
+    ...mockDocument,
+    id: `test-id-${startIndex + i + 1}`,
+    file_name: `Document_${startIndex + i + 1}.pdf`,
+  }));
+};
+
 // Mock fetch globally
 const mockFetch = vi.fn();
 
@@ -78,6 +87,9 @@ describe("SearchPage", () => {
         searchDescription: "Searching for: test query",
         documents: [mockDocument],
         count: 1,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -90,7 +102,7 @@ describe("SearchPage", () => {
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/search?q=test%20query&mode=natural"
+        "/api/search?q=test%20query&mode=natural&limit=20&offset=0"
       );
     });
 
@@ -107,6 +119,9 @@ describe("SearchPage", () => {
         mode: "natural",
         documents: [mockDocument],
         count: 1,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -117,7 +132,7 @@ describe("SearchPage", () => {
     fireEvent.submit(input.closest("form")!);
 
     await waitFor(() => {
-      expect(screen.getByText(/Found/)).toBeDefined();
+      expect(screen.getByText(/Showing/)).toBeDefined();
       expect(screen.getByText("1")).toBeDefined();
       expect(screen.getByText(/document$/)).toBeDefined();
     });
@@ -131,6 +146,9 @@ describe("SearchPage", () => {
         mode: "natural",
         documents: [mockDocument, { ...mockDocument, id: "test-id-2" }],
         count: 2,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -154,6 +172,9 @@ describe("SearchPage", () => {
         searchDescription: "Filters: category: Utility Bill | years: 2024",
         documents: [mockDocument],
         count: 1,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -185,6 +206,9 @@ describe("SearchPage", () => {
         },
         documents: [mockDocument],
         count: 1,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -209,6 +233,9 @@ describe("SearchPage", () => {
         mode: "natural",
         documents: [],
         count: 0,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -301,6 +328,9 @@ describe("SearchPage", () => {
         query: "test",
         documents: [],
         count: 0,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -317,6 +347,9 @@ describe("SearchPage", () => {
         mode: "natural",
         documents: [],
         count: 0,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -358,6 +391,9 @@ describe("SearchPage", () => {
         query: "test2",
         documents: [],
         count: 0,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -376,6 +412,9 @@ describe("SearchPage", () => {
         query: "bills & invoices",
         documents: [],
         count: 0,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
@@ -387,8 +426,373 @@ describe("SearchPage", () => {
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/search?q=bills%20%26%20invoices&mode=natural"
+        "/api/search?q=bills%20%26%20invoices&mode=natural&limit=20&offset=0"
       );
+    });
+  });
+});
+
+describe("SearchPage pagination", () => {
+  it("shows Load More button when hasMore is true", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(20),
+        count: 20,
+        limit: 20,
+        offset: 0,
+        hasMore: true,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Load More" })).toBeDefined();
+    });
+  });
+
+  it("does not show Load More button when hasMore is false", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(5),
+        count: 5,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Document_1.pdf")).toBeDefined();
+    });
+
+    expect(screen.queryByRole("button", { name: "Load More" })).toBeNull();
+  });
+
+  it("loads more results when Load More is clicked", async () => {
+    // First page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(20, 0),
+        count: 20,
+        limit: 20,
+        offset: 0,
+        hasMore: true,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Document_1.pdf")).toBeDefined();
+      expect(screen.getByText("Document_20.pdf")).toBeDefined();
+    });
+
+    // Second page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(20, 20),
+        count: 20,
+        limit: 20,
+        offset: 20,
+        hasMore: true,
+      }),
+    });
+
+    const loadMoreButton = screen.getByRole("button", { name: "Load More" });
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenLastCalledWith(
+        "/api/search?q=test&mode=natural&limit=20&offset=20"
+      );
+    });
+
+    await waitFor(() => {
+      // Should have both first and second page results
+      expect(screen.getByText("Document_1.pdf")).toBeDefined();
+      expect(screen.getByText("Document_21.pdf")).toBeDefined();
+      expect(screen.getByText("Document_40.pdf")).toBeDefined();
+    });
+  });
+
+  it("shows loading state when loading more results", async () => {
+    // First page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(20),
+        count: 20,
+        limit: 20,
+        offset: 0,
+        hasMore: true,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Load More" })).toBeDefined();
+    });
+
+    // Create a promise that we can control for load more
+    let resolvePromise: (value: unknown) => void;
+    const fetchPromise = new Promise((resolve) => {
+      resolvePromise = resolve;
+    });
+
+    mockFetch.mockReturnValueOnce(fetchPromise);
+
+    const loadMoreButton = screen.getByRole("button", { name: "Load More" });
+    fireEvent.click(loadMoreButton);
+
+    // Should show loading state on button
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Loading..." })).toBeDefined();
+    });
+
+    // Resolve the promise
+    resolvePromise!({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(10, 20),
+        count: 10,
+        limit: 20,
+        offset: 20,
+        hasMore: false,
+      }),
+    });
+
+    await waitFor(() => {
+      // Load more button should be gone since hasMore is false
+      expect(screen.queryByRole("button", { name: "Load More" })).toBeNull();
+    });
+  });
+
+  it("hides Load More button when last page is reached", async () => {
+    // First page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(20),
+        count: 20,
+        limit: 20,
+        offset: 0,
+        hasMore: true,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Load More" })).toBeDefined();
+    });
+
+    // Last page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(5, 20),
+        count: 5,
+        limit: 20,
+        offset: 20,
+        hasMore: false,
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Load More" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Load More" })).toBeNull();
+    });
+  });
+
+  it("shows (more available) text when hasMore is true", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(20),
+        count: 20,
+        limit: 20,
+        offset: 0,
+        hasMore: true,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText(/\(more available\)/)).toBeDefined();
+    });
+  });
+
+  it("resets pagination when new search is performed", async () => {
+    // First search with pagination
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test1",
+        mode: "natural",
+        documents: createMockDocuments(20),
+        count: 20,
+        limit: 20,
+        offset: 0,
+        hasMore: true,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test1" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Document_1.pdf")).toBeDefined();
+    });
+
+    // Load more
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test1",
+        mode: "natural",
+        documents: createMockDocuments(20, 20),
+        count: 20,
+        limit: 20,
+        offset: 20,
+        hasMore: false,
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Load More" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Document_40.pdf")).toBeDefined();
+    });
+
+    // New search should reset
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test2",
+        mode: "natural",
+        documents: [{ ...mockDocument, file_name: "NewSearch.pdf" }],
+        count: 1,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
+      }),
+    });
+
+    fireEvent.change(input, { target: { value: "test2" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenLastCalledWith(
+        "/api/search?q=test2&mode=natural&limit=20&offset=0"
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("NewSearch.pdf")).toBeDefined();
+      // Old results should be cleared
+      expect(screen.queryByText("Document_1.pdf")).toBeNull();
+      expect(screen.queryByText("Document_40.pdf")).toBeNull();
+    });
+  });
+
+  it("updates displayed count as more results are loaded", async () => {
+    // First page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(20),
+        count: 20,
+        limit: 20,
+        offset: 0,
+        hasMore: true,
+      }),
+    });
+
+    render(<SearchPage />);
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("20")).toBeDefined();
+    });
+
+    // Second page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        query: "test",
+        mode: "natural",
+        documents: createMockDocuments(15, 20),
+        count: 15,
+        limit: 20,
+        offset: 20,
+        hasMore: false,
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Load More" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("35")).toBeDefined();
     });
   });
 });
@@ -412,6 +816,9 @@ describe("SearchPage path click handling", () => {
         query: "test",
         documents: [mockDocument],
         count: 1,
+        limit: 20,
+        offset: 0,
+        hasMore: false,
       }),
     });
 
