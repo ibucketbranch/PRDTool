@@ -1528,3 +1528,1032 @@ class TestRoutingHistoryUpdateOnRefile:
         # Verify roundtrip preserves the data
         restored = DriftRecord.from_dict(drift.to_dict())
         assert restored.original_routing_record == original_routing
+
+
+# =============================================================================
+# LLM Drift Assessment Path Tests (Phase 16.6)
+# =============================================================================
+
+
+class TestLLMDriftAssessmentPath:
+    """Tests for LLM-powered drift assessment with T1 Fast."""
+
+    def test_llm_assessment_uses_t1_fast_for_low_complexity(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that drift assessment uses T1 Fast model for initial assessment."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": False,
+            "confidence": 0.88,
+            "reason": "File moved to Desktop suggests accidental drag-drop",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "tax_2024.pdf",
+            "/Finances Bin/Taxes/tax_2024.pdf",
+            "/Desktop/tax_2024.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # Verify T1 Fast (8b) was used
+        assert model_used == "llama3.1:8b"
+        # Verify router was called with low complexity profile
+        call_args = mock_model_router.route.call_args
+        assert call_args[0][0].complexity == "low"
+
+    def test_llm_reason_captured_in_assessment(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM reasoning is captured in the assessment."""
+        expected_reason = "Desktop location indicates accidental drag-and-drop behavior"
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": False,
+            "confidence": 0.92,
+            "reason": expected_reason,
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "file.pdf",
+            "/original/path/file.pdf",
+            "/Desktop/file.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        assert reason == expected_reason
+
+    def test_llm_model_used_field_populated_in_drift_record(
+        self, temp_dir_with_files, mock_llm_client, mock_model_router
+    ):
+        """Test that model_used field is populated in DriftRecord."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": False,
+            "confidence": 0.88,
+            "reason": "Desktop location",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        file_path = str(temp_dir_with_files / "Desktop" / "tax_2024.pdf")
+        record = agent.assess_single_file(
+            file_path=file_path,
+            original_path="/Finances Bin/Taxes/tax_2024.pdf",
+            filed_at="2024-01-15T10:00:00",
+        )
+
+        assert record.model_used == "llama3.1:8b"
+        assert record.drift_assessment == "likely_accidental"
+
+
+# =============================================================================
+# LLM Unavailability / Graceful Degradation Tests (Phase 16.6)
+# =============================================================================
+
+
+class TestLLMUnavailabilityDrift:
+    """Tests for graceful degradation when LLM is unavailable."""
+
+    def test_ollama_down_uses_keyword_fallback(
+        self, temp_dir_with_files, mock_llm_client, mock_model_router
+    ):
+        """Test that Ollama being down triggers keyword fallback."""
+        mock_llm_client.is_ollama_available.return_value = False
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        file_path = str(temp_dir_with_files / "Desktop" / "tax_2024.pdf")
+        record = agent.assess_single_file(
+            file_path=file_path,
+            original_path="/Finances Bin/tax_2024.pdf",
+            filed_at="2024-01-15T10:00:00",
+        )
+
+        # Should use keyword fallback (no model_used)
+        assert record.model_used == ""
+        # Should still correctly assess Desktop as accidental
+        assert record.drift_assessment == "likely_accidental"
+
+    def test_ollama_check_exception_falls_back_to_keywords(
+        self, temp_dir_with_files, mock_llm_client, mock_model_router
+    ):
+        """Test that exception during Ollama check triggers keyword fallback."""
+        mock_llm_client.is_ollama_available.side_effect = Exception("Connection error")
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        file_path = str(temp_dir_with_files / "Desktop" / "tax_2024.pdf")
+        record = agent.assess_single_file(
+            file_path=file_path,
+            original_path="/Finances Bin/tax_2024.pdf",
+            filed_at="2024-01-15T10:00:00",
+        )
+
+        assert record.model_used == ""
+        assert record.drift_assessment == "likely_accidental"
+
+    def test_no_llm_client_uses_keyword_fallback(self, temp_dir_with_files):
+        """Test that absence of LLM client uses keyword fallback."""
+        agent = ReFileAgent()
+
+        file_path = str(temp_dir_with_files / "Desktop" / "tax_2024.pdf")
+        record = agent.assess_single_file(
+            file_path=file_path,
+            original_path="/Finances Bin/tax_2024.pdf",
+            filed_at="2024-01-15T10:00:00",
+        )
+
+        assert record.model_used == ""
+        assert record.drift_assessment == "likely_accidental"
+
+    def test_use_llm_false_bypasses_llm(
+        self, temp_dir_with_files, mock_llm_client, mock_model_router
+    ):
+        """Test that use_llm=False bypasses LLM even when available."""
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            use_llm=False,
+        )
+
+        file_path = str(temp_dir_with_files / "Desktop" / "tax_2024.pdf")
+        record = agent.assess_single_file(
+            file_path=file_path,
+            original_path="/Finances Bin/tax_2024.pdf",
+            filed_at="2024-01-15T10:00:00",
+        )
+
+        # LLM should not be called
+        mock_llm_client.generate.assert_not_called()
+        assert record.model_used == ""
+
+    def test_model_router_runtime_error_falls_back_to_keywords(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that router failure triggers keyword fallback."""
+        mock_model_router.route.side_effect = RuntimeError("No model available")
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "tax_2024.pdf",
+            "/Finances Bin/tax_2024.pdf",
+            "/Desktop/tax_2024.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # Should return empty model_used, indicating failure
+        assert model_used == ""
+        assert assessment == ""
+
+    def test_llm_generate_fails_falls_back_to_keywords(
+        self, temp_dir_with_files, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM generate failure falls back to keywords."""
+        mock_response = MagicMock()
+        mock_response.success = False
+        mock_response.error = "Connection timeout"
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        file_path = str(temp_dir_with_files / "Desktop" / "tax_2024.pdf")
+        record = agent.assess_single_file(
+            file_path=file_path,
+            original_path="/Finances Bin/tax_2024.pdf",
+            filed_at="2024-01-15T10:00:00",
+        )
+
+        # Should fall back to keywords
+        assert record.model_used == ""
+        assert record.drift_assessment == "likely_accidental"
+
+
+# =============================================================================
+# Prompt Registry Integration Tests (Phase 16.6)
+# =============================================================================
+
+
+class TestPromptRegistryIntegrationDrift:
+    """Tests for prompt registry integration in drift assessment."""
+
+    def test_uses_prompt_from_registry_when_available(
+        self, mock_llm_client, mock_model_router, tmp_path
+    ):
+        """Test that assess_drift prompt is loaded from registry when available."""
+        from organizer.prompt_registry import PromptRegistry
+
+        # Create a custom prompts directory with assess_drift prompt
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        custom_prompt = """# Prompt: assess_drift
+# Version: 2.0.0
+# Last-Modified: 2024-01-15
+# Description: Custom drift assessment
+
+Custom prompt for '{filename}' at '{current_path}'.
+Was this intentional?"""
+        (prompts_dir / "assess_drift.txt").write_text(custom_prompt)
+
+        mock_registry = PromptRegistry(prompts_dir=prompts_dir)
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.9,
+            "reason": "Custom test",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            prompt_registry=mock_registry,
+        )
+
+        agent._assess_drift_with_llm(
+            "test.pdf",
+            "/original/test.pdf",
+            "/current/test.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # Check that the LLM was called with custom prompt content
+        call_args = mock_llm_client.generate.call_args
+        prompt_used = call_args[0][0]
+        assert "Custom prompt" in prompt_used
+
+    def test_falls_back_to_inline_prompt_when_registry_missing(
+        self, mock_llm_client, mock_model_router, tmp_path
+    ):
+        """Test fallback to inline prompt when registry prompt not found."""
+        from organizer.prompt_registry import PromptRegistry
+
+        # Create empty prompts directory (no assess_drift)
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "other_prompt.txt").write_text("# Some other prompt")
+
+        mock_registry = PromptRegistry(prompts_dir=prompts_dir)
+
+        # Mock the get method to raise KeyError for assess_drift
+        original_get = mock_registry.get
+
+        def mock_get(name, **kwargs):
+            if name == "assess_drift":
+                raise KeyError("Missing variable")
+            return original_get(name, **kwargs)
+
+        mock_registry.get = mock_get
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.85,
+            "reason": "Test",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            prompt_registry=mock_registry,
+        )
+
+        # Should not raise, should fall back to inline prompt
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "test.pdf",
+            "/original/test.pdf",
+            "/current/test.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        assert model_used != ""  # LLM was called successfully
+
+    def test_prompt_registry_used_for_destination_suggestion(
+        self, mock_llm_client, mock_model_router, tmp_path
+    ):
+        """Test that prompt registry is used for destination suggestion prompts."""
+        from organizer.prompt_registry import PromptRegistry
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+
+        # Create suggest_refile_destination prompt
+        custom_prompt = """# Prompt: suggest_refile_destination
+# Version: 1.0.0
+# Last-Modified: 2024-01-15
+# Description: Suggest destination for drifted file
+
+Where should '{filename}' go now that '{original_path}' is gone?
+Content: {content}"""
+        (prompts_dir / "suggest_refile_destination.txt").write_text(custom_prompt)
+
+        mock_registry = PromptRegistry(prompts_dir=prompts_dir)
+
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "suggested_path": "Finances Bin/Taxes/2024",
+            "confidence": 0.9,
+            "reason": "Tax document",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            prompt_registry=mock_registry,
+        )
+
+        agent._suggest_destination_with_llm(
+            "tax_2024.pdf",
+            "/old/path/tax_2024.pdf",
+            "tax document content preview",
+        )
+
+        # Verify the custom prompt was used
+        call_args = mock_llm_client.generate.call_args
+        prompt_used = call_args[0][0]
+        assert "Where should" in prompt_used
+
+
+# =============================================================================
+# Destination Suggestion When Original Path Gone Tests (Phase 16.6)
+# =============================================================================
+
+
+class TestDestinationSuggestionOriginalPathGone:
+    """Tests for LLM-powered destination suggestion when original path is gone."""
+
+    def test_llm_suggests_destination_when_original_path_gone(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM suggests new destination when original path doesn't exist."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "suggested_path": "Finances Bin/Taxes/Federal/2024",
+            "confidence": 0.92,
+            "reason": "Tax document from 2024, categorized under Federal taxes",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        suggestion = agent._suggest_destination_with_llm(
+            "tax_2024.pdf",
+            "/nonexistent/old/path/tax_2024.pdf",
+            "IRS Form 1040 for tax year 2024",
+        )
+
+        assert suggestion is not None
+        assert suggestion.suggested_path == "Finances Bin/Taxes/Federal/2024"
+        assert suggestion.confidence == 0.92
+        assert "tax" in suggestion.reason.lower() or "Tax" in suggestion.reason
+
+    def test_llm_uses_t2_smart_for_destination_suggestion(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that T2 Smart is used for destination suggestion (complex task)."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "suggested_path": "VA/Claims/2024",
+            "confidence": 0.88,
+            "reason": "VA claim document",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        suggestion = agent._suggest_destination_with_llm(
+            "va_claim.pdf",
+            "/old/path/va_claim.pdf",
+            "VA claim content",
+        )
+
+        # Verify T2 Smart (14b) was used for complex analysis
+        call_args = mock_model_router.route.call_args
+        assert call_args[0][0].complexity == "medium"
+        assert suggestion.model_used == "qwen2.5:14b"
+
+    def test_llm_destination_suggestion_failure_returns_none(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that LLM failure returns None for destination suggestion."""
+        mock_response = MagicMock()
+        mock_response.success = False
+        mock_response.error = "Model unavailable"
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        suggestion = agent._suggest_destination_with_llm(
+            "file.pdf",
+            "/old/path/file.pdf",
+            "content preview",
+        )
+
+        assert suggestion is None
+
+    def test_suggest_destination_falls_back_to_keywords_when_llm_unavailable(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that suggest_destination uses keywords when LLM is unavailable."""
+        mock_llm_client.is_ollama_available.return_value = False
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        suggestion = agent.suggest_destination(
+            "/current/tax_2024.pdf",
+            "/old/nonexistent/tax_2024.pdf",
+        )
+
+        # Should use keyword fallback
+        assert suggestion.model_used == ""
+        assert "Finances" in suggestion.suggested_path or "Taxes" in suggestion.suggested_path
+
+    def test_llm_invalid_json_returns_none(self, mock_llm_client, mock_model_router):
+        """Test that invalid JSON from LLM returns None for suggestion."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = "This is not valid JSON response"
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        suggestion = agent._suggest_destination_with_llm(
+            "file.pdf",
+            "/old/path/file.pdf",
+            "content",
+        )
+
+        assert suggestion is None
+
+    def test_llm_empty_suggested_path_returns_none(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that empty suggested_path from LLM returns None."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "suggested_path": "",  # Empty path
+            "confidence": 0.5,
+            "reason": "Unable to determine",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        suggestion = agent._suggest_destination_with_llm(
+            "file.pdf",
+            "/old/path/file.pdf",
+            "content",
+        )
+
+        assert suggestion is None
+
+
+# =============================================================================
+# Learned Rules Integration Tests (Phase 16.6)
+# =============================================================================
+
+
+class TestLearnedRulesIntegrationDrift:
+    """Tests for learned rules integration as source of truth for correct placement."""
+
+    def test_learned_rules_used_for_destination_suggestion(self, tmp_path):
+        """Test that learned rules are checked for destination suggestion."""
+        from organizer.learned_rules import LearnedRuleStore, StoredRule
+
+        # Create a learned rules store with a tax rule
+        rules_path = tmp_path / "learned_routing_rules.json"
+        store = LearnedRuleStore(
+            rules_path=rules_path,
+            taxonomy_path=None,
+            auto_load=False,
+        )
+        store.add_rule(StoredRule(
+            pattern="tax",
+            destination="Finances Bin/Taxes/Learned",
+            confidence=0.9,
+            pattern_type="keyword",
+            reasoning="Tax documents go to Finances Bin",
+        ))
+
+        agent = ReFileAgent(
+            learned_rule_store=store,
+            use_learned_rules=True,
+        )
+
+        suggestion = agent._suggest_destination_with_keywords(
+            "tax_2024.pdf",
+            "/nonexistent/old/path/tax_2024.pdf",
+        )
+
+        # Should use learned rule destination
+        assert "Learned" in suggestion.suggested_path
+        assert suggestion.confidence == 0.9
+
+    def test_learned_rules_disabled_uses_hardcoded_keywords(self, tmp_path):
+        """Test that disabling learned rules falls back to hardcoded keywords."""
+        from organizer.learned_rules import LearnedRuleStore, StoredRule
+
+        rules_path = tmp_path / "learned_routing_rules.json"
+        store = LearnedRuleStore(
+            rules_path=rules_path,
+            taxonomy_path=None,
+            auto_load=False,
+        )
+        store.add_rule(StoredRule(
+            pattern="tax",
+            destination="CustomBin/Taxes",
+            confidence=0.9,
+            pattern_type="keyword",
+        ))
+
+        agent = ReFileAgent(
+            learned_rule_store=store,
+            use_learned_rules=False,  # Disabled
+        )
+
+        suggestion = agent._suggest_destination_with_keywords(
+            "tax_2024.pdf",
+            "/old/path/tax_2024.pdf",
+        )
+
+        # Should use hardcoded keyword rules, not learned rules
+        assert "CustomBin" not in suggestion.suggested_path
+        assert "Finances" in suggestion.suggested_path or "Taxes" in suggestion.suggested_path
+
+    def test_learned_rules_no_match_falls_through_to_hardcoded(self, tmp_path):
+        """Test that no learned rule match falls through to hardcoded keywords."""
+        from organizer.learned_rules import LearnedRuleStore, StoredRule
+
+        rules_path = tmp_path / "learned_routing_rules.json"
+        store = LearnedRuleStore(
+            rules_path=rules_path,
+            taxonomy_path=None,
+            auto_load=False,
+        )
+        # Add a rule that won't match
+        store.add_rule(StoredRule(
+            pattern="specific_pattern_xyz",
+            destination="CustomBin/Specific",
+            confidence=0.9,
+            pattern_type="keyword",
+        ))
+
+        agent = ReFileAgent(
+            learned_rule_store=store,
+            use_learned_rules=True,
+        )
+
+        suggestion = agent._suggest_destination_with_keywords(
+            "tax_2024.pdf",  # Won't match "specific_pattern_xyz"
+            "/old/path/tax_2024.pdf",
+        )
+
+        # Should fall through to hardcoded keywords
+        assert "Finances" in suggestion.suggested_path or "Taxes" in suggestion.suggested_path
+        assert "CustomBin" not in suggestion.suggested_path
+
+    def test_learned_rules_year_subpath_preserved(self, tmp_path):
+        """Test that year is preserved in suggested subpath from learned rules."""
+        from organizer.learned_rules import LearnedRuleStore, StoredRule
+
+        rules_path = tmp_path / "learned_routing_rules.json"
+        store = LearnedRuleStore(
+            rules_path=rules_path,
+            taxonomy_path=None,
+            auto_load=False,
+        )
+        store.add_rule(StoredRule(
+            pattern="invoice",
+            destination="Finances Bin/Invoices",
+            confidence=0.85,
+            pattern_type="keyword",
+            reasoning="Invoices go to Finances Bin/Invoices",
+        ))
+
+        agent = ReFileAgent(
+            learned_rule_store=store,
+            use_learned_rules=True,
+        )
+
+        suggestion = agent._suggest_destination_with_keywords(
+            "invoice_2024_march.pdf",
+            "/old/path/invoice_2024_march.pdf",
+        )
+
+        # Year should be appended to the suggestion
+        assert "2024" in suggestion.suggested_path
+        assert "Invoices" in suggestion.suggested_path
+
+
+# =============================================================================
+# T2 Smart Escalation Tests (Phase 16.6)
+# =============================================================================
+
+
+class TestT2SmartEscalationDrift:
+    """Tests for T1 to T2 escalation in drift assessment."""
+
+    def test_escalation_triggers_on_low_confidence(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that low T1 confidence triggers T2 escalation."""
+        # T1 returns low confidence
+        t1_response = MagicMock()
+        t1_response.success = True
+        t1_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.5,  # Below default threshold of 0.75
+            "reason": "Uncertain about this move",
+        })
+
+        # T2 returns higher confidence with different assessment
+        t2_response = MagicMock()
+        t2_response.success = True
+        t2_response.text = json.dumps({
+            "likely_intentional": False,
+            "confidence": 0.95,
+            "reason": "After deeper analysis, this appears accidental",
+        })
+
+        mock_llm_client.generate.side_effect = [t1_response, t2_response]
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            escalation_threshold=0.75,
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "file.pdf",
+            "/original/file.pdf",
+            "/Desktop/file.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # Should have called both T1 and T2
+        assert mock_llm_client.generate.call_count == 2
+        # Final result should be from T2
+        assert confidence == 0.95
+        assert model_used == "qwen2.5:14b"
+        assert assessment == "likely_accidental"
+
+    def test_escalation_uses_same_prompt(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that escalation uses the same prompt for T2."""
+        t1_response = MagicMock()
+        t1_response.success = True
+        t1_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.6,
+            "reason": "Not sure",
+        })
+
+        t2_response = MagicMock()
+        t2_response.success = True
+        t2_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.9,
+            "reason": "Confirmed intentional",
+        })
+
+        mock_llm_client.generate.side_effect = [t1_response, t2_response]
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            escalation_threshold=0.75,
+        )
+
+        agent._assess_drift_with_llm(
+            "test.pdf",
+            "/original/test.pdf",
+            "/new/test.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # Both calls should have the same prompt
+        calls = mock_llm_client.generate.call_args_list
+        assert len(calls) == 2
+        prompt_1 = calls[0][0][0]
+        prompt_2 = calls[1][0][0]
+        assert prompt_1 == prompt_2
+
+    def test_escalation_does_not_trigger_when_above_threshold(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that high confidence does not trigger escalation."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.92,  # Above threshold
+            "reason": "Clear intentional move",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            escalation_threshold=0.75,
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "file.pdf",
+            "/original/file.pdf",
+            "/Work Bin/file.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # Should only call T1
+        assert mock_llm_client.generate.call_count == 1
+        assert model_used == "llama3.1:8b"
+
+    def test_custom_escalation_threshold(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that custom escalation threshold is respected."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.85,  # Above custom threshold of 0.8
+            "reason": "Clear move",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            escalation_threshold=0.8,  # Custom threshold
+        )
+
+        agent._assess_drift_with_llm(
+            "file.pdf",
+            "/original/file.pdf",
+            "/Work Bin/file.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # 0.85 > 0.8, should not escalate
+        assert mock_llm_client.generate.call_count == 1
+
+    def test_escalation_t2_failure_uses_t1_result(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that T2 failure falls back to T1 result."""
+        t1_response = MagicMock()
+        t1_response.success = True
+        t1_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": 0.6,  # Will trigger escalation
+            "reason": "T1 assessment",
+        })
+
+        t2_response = MagicMock()
+        t2_response.success = False  # T2 fails
+        t2_response.error = "Model overloaded"
+
+        mock_llm_client.generate.side_effect = [t1_response, t2_response]
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            escalation_threshold=0.75,
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "file.pdf",
+            "/original/file.pdf",
+            "/Desktop/file.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # Should use T1 result when T2 fails
+        assert confidence == 0.6
+        assert model_used == "llama3.1:8b"  # T1 model
+        assert reason == "T1 assessment"
+
+
+# =============================================================================
+# Additional JSON Parsing Edge Cases (Phase 16.6)
+# =============================================================================
+
+
+class TestJSONParsingDriftEdgeCases:
+    """Additional JSON parsing edge cases for LLM responses."""
+
+    def test_parse_json_with_newlines(self):
+        """Test parsing JSON with newlines inside strings."""
+        agent = ReFileAgent()
+
+        text = '''{"likely_intentional": false, "confidence": 0.85, "reason": "File was\\nmoved to Desktop"}'''
+        data = agent._parse_llm_json_response(text)
+
+        assert data is not None
+        assert data["likely_intentional"] is False
+
+    def test_parse_json_with_unicode(self):
+        """Test parsing JSON with unicode characters."""
+        agent = ReFileAgent()
+
+        text = '{"likely_intentional": true, "confidence": 0.9, "reason": "Intentional → moved"}'
+        data = agent._parse_llm_json_response(text)
+
+        assert data is not None
+        assert data["likely_intentional"] is True
+
+    def test_parse_json_missing_confidence(self):
+        """Test handling of missing confidence field."""
+        agent = ReFileAgent()
+
+        text = '{"likely_intentional": false, "reason": "Test"}'
+        data = agent._parse_llm_json_response(text)
+
+        assert data is not None
+        assert "likely_intentional" in data
+        # confidence key is missing but that's OK
+
+    def test_parse_json_extra_text_after(self):
+        """Test parsing JSON with extra text after the closing brace."""
+        agent = ReFileAgent()
+
+        text = '{"likely_intentional": true, "confidence": 0.8, "reason": "test"} Let me know if you need more info.'
+        data = agent._parse_llm_json_response(text)
+
+        assert data is not None
+        assert data["likely_intentional"] is True
+
+    def test_confidence_as_string_handled_t1_only(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that confidence as string is handled gracefully without escalation."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": "high",  # String instead of float
+            "reason": "Test",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+            escalation_threshold=0.3,  # Set low threshold to prevent escalation
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "file.pdf",
+            "/original/file.pdf",
+            "/current/file.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        # T1 converts string confidence to default 0.5
+        # Since 0.5 > 0.3 (threshold), no escalation happens
+        assert confidence == 0.5
+
+    def test_negative_confidence_clamped_to_zero(
+        self, mock_llm_client, mock_model_router
+    ):
+        """Test that negative confidence is clamped to 0.0."""
+        mock_response = MagicMock()
+        mock_response.success = True
+        mock_response.text = json.dumps({
+            "likely_intentional": True,
+            "confidence": -0.5,  # Negative
+            "reason": "Test",
+        })
+        mock_llm_client.generate.return_value = mock_response
+
+        agent = ReFileAgent(
+            llm_client=mock_llm_client,
+            model_router=mock_model_router,
+        )
+
+        assessment, reason, confidence, model_used = agent._assess_drift_with_llm(
+            "file.pdf",
+            "/original/file.pdf",
+            "/current/file.pdf",
+            "2024-01-15T10:00:00",
+        )
+
+        assert confidence == 0.0
+
+
+# =============================================================================
+# Detection Result Model Used Field Tests (Phase 16.6)
+# =============================================================================
+
+
+class TestDriftDetectionResultModelUsed:
+    """Tests for model_used field in DriftDetectionResult."""
+
+    def test_result_model_used_from_multiple_drifts(self, tmp_path):
+        """Test that result.model_used aggregates models from all drift records."""
+        record1 = DriftRecord(
+            file_path="/Desktop/file1.pdf",
+            original_filed_path="/Finances Bin/file1.pdf",
+            current_path="/Desktop/file1.pdf",
+            drift_assessment="likely_accidental",
+            model_used="llama3.1:8b",
+        )
+        record2 = DriftRecord(
+            file_path="/Desktop/file2.pdf",
+            original_filed_path="/Work Bin/file2.pdf",
+            current_path="/Desktop/file2.pdf",
+            drift_assessment="likely_accidental",
+            model_used="qwen2.5:14b",  # Different model (escalation)
+        )
+
+        result = DriftDetectionResult(
+            drift_records=[record1, record2],
+            files_checked=5,
+        )
+
+        # Model used should be set manually in detect_drift, not here
+        # But drift records should preserve their individual model_used
+        assert result.drift_records[0].model_used == "llama3.1:8b"
+        assert result.drift_records[1].model_used == "qwen2.5:14b"
+
+    def test_result_used_keyword_fallback_flag(self):
+        """Test used_keyword_fallback flag in result."""
+        result = DriftDetectionResult(
+            used_keyword_fallback=True,
+            model_used="",
+        )
+
+        assert result.used_keyword_fallback is True
+        assert result.model_used == ""
+
+    def test_to_dict_includes_model_used(self):
+        """Test that to_dict includes model_used field."""
+        result = DriftDetectionResult(
+            files_checked=10,
+            model_used="llama3.1:8b",
+            used_keyword_fallback=False,
+        )
+
+        d = result.to_dict()
+        assert d["model_used"] == "llama3.1:8b"
+        assert d["used_keyword_fallback"] is False

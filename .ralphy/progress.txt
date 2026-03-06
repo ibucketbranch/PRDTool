@@ -4052,3 +4052,55 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
   - ✅ LLM validation path
   - ✅ Path preservation reasoning
 - Task marked complete in PRD.md
+
+## 2026-03-05
+- Updated Phase 16.6: `test_refile_agent.py` with comprehensive LLM tests
+  - Added `TestLLMDriftAssessmentPath` class (3 tests):
+    - `test_llm_assessment_uses_t1_fast_for_low_complexity`: Verifies T1 Fast used for initial assessment
+    - `test_llm_reason_captured_in_assessment`: Verifies LLM reasoning captured
+    - `test_llm_model_used_field_populated_in_drift_record`: Verifies model_used in DriftRecord
+  - Added `TestLLMUnavailabilityDrift` class (6 tests):
+    - `test_ollama_down_uses_keyword_fallback`: Keyword fallback when Ollama down
+    - `test_ollama_check_exception_falls_back_to_keywords`: Exception handling during check
+    - `test_no_llm_client_uses_keyword_fallback`: No LLM client triggers fallback
+    - `test_use_llm_false_bypasses_llm`: Explicit LLM bypass
+    - `test_model_router_runtime_error_falls_back_to_keywords`: Router failure handling
+    - `test_llm_generate_fails_falls_back_to_keywords`: Generate failure fallback
+  - Added `TestPromptRegistryIntegrationDrift` class (3 tests):
+    - `test_uses_prompt_from_registry_when_available`: Custom prompt loading
+    - `test_falls_back_to_inline_prompt_when_registry_missing`: Inline prompt fallback
+    - `test_prompt_registry_used_for_destination_suggestion`: Destination suggestion prompts
+  - Added `TestDestinationSuggestionOriginalPathGone` class (6 tests):
+    - `test_llm_suggests_destination_when_original_path_gone`: LLM destination suggestion
+    - `test_llm_uses_t2_smart_for_destination_suggestion`: T2 Smart for complex analysis
+    - `test_llm_destination_suggestion_failure_returns_none`: Failure handling
+    - `test_suggest_destination_falls_back_to_keywords_when_llm_unavailable`: Keyword fallback
+    - `test_llm_invalid_json_returns_none`: Invalid JSON handling
+    - `test_llm_empty_suggested_path_returns_none`: Empty path handling
+  - Added `TestLearnedRulesIntegrationDrift` class (4 tests):
+    - `test_learned_rules_used_for_destination_suggestion`: Learned rules as source of truth
+    - `test_learned_rules_disabled_uses_hardcoded_keywords`: Disable flag
+    - `test_learned_rules_no_match_falls_through_to_hardcoded`: Fallthrough behavior
+    - `test_learned_rules_year_subpath_preserved`: Year preservation in subpath
+  - Added `TestT2SmartEscalationDrift` class (5 tests):
+    - `test_escalation_triggers_on_low_confidence`: Low confidence triggers T2
+    - `test_escalation_uses_same_prompt`: Same prompt for T2
+    - `test_escalation_does_not_trigger_when_above_threshold`: No escalation above threshold
+    - `test_custom_escalation_threshold`: Custom threshold respected
+    - `test_escalation_t2_failure_uses_t1_result`: T2 failure uses T1 result
+  - Added `TestJSONParsingDriftEdgeCases` class (6 tests):
+    - `test_parse_json_with_newlines`: Newlines in JSON
+    - `test_parse_json_with_unicode`: Unicode characters
+    - `test_parse_json_missing_confidence`: Missing confidence field
+    - `test_parse_json_extra_text_after`: Extra text after JSON
+    - `test_confidence_as_string_handled_t1_only`: String confidence handling
+    - `test_negative_confidence_clamped_to_zero`: Negative confidence clamping
+  - Added `TestDriftDetectionResultModelUsed` class (3 tests):
+    - `test_result_model_used_from_multiple_drifts`: Multiple models in result
+    - `test_result_used_keyword_fallback_flag`: Fallback flag
+    - `test_to_dict_includes_model_used`: Dict serialization
+- Total: 101 tests pass, all linting passes
+- PRD requirements covered:
+  - ✅ LLM drift assessment
+  - ✅ Destination suggestion when original path gone
+- Task marked complete in PRD.md
