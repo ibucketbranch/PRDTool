@@ -3993,3 +3993,28 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
   - Configuration preservation when updating
 - All 29 tests pass, all linting passes
 - Task completed successfully
+
+## 2026-03-05
+- Updated Phase 16.6: `test_inbox_processor.py` with LLM classification tests
+  - Completely rewrote test file to use `organizer.inbox_processor` module (LLM-native version)
+  - Added 54 comprehensive tests covering:
+    - TestInboxProcessor (5 tests): basic functionality, scanning, excludes hidden/dirs/errors
+    - TestInboxProcessorKeywordClassification (5 tests): tax, VA, resume, unmatched, date signals
+    - TestLLMClassificationResult (3 tests): creation, defaults, escalation flag
+    - TestInboxProcessorLLMIntegration (5 tests): accepts client, creates router/registry, use_llm flag
+    - TestLLMClassificationPath (2 tests): uses LLM when available, populates matched_keywords
+    - TestEscalationFromT1ToT2 (3 tests): escalation with low confidence, no escalation high confidence, multiple steps
+    - TestKeywordFallbackWhenOllamaDown (6 tests): no client, not operational, generation fails, prompt not found, empty bin, graceful degradation
+    - TestClassificationComparison (3 tests): creation, without LLM result, auto timestamp
+    - TestABComparisonMode (6 tests): accepts flag, disabled by default, logs dir, runs both methods, detects disagreement, keyword fallback
+    - TestABComparisonLogging (6 tests): log created, not created when disabled, summary, comparisons list, LLM success, agreement rate
+    - TestGetCurrentComparisons (3 tests): empty initially, after scan, reset on new scan
+    - TestJSONParsing (6 tests): clean JSON, markdown, text before, invalid, confidence, missing confidence
+    - TestAvailableBins (1 test): sorted list
+  - All 54 tests pass, linting passes
+  - PRD requirements covered:
+    - ✅ LLM classification path
+    - ✅ Escalation from T1 to T2
+    - ✅ Keyword fallback when Ollama down
+    - ✅ A/B comparison logging
+- Task marked as complete
