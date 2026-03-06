@@ -67,8 +67,14 @@ from organizer.learned_rules import (
 from organizer.llm_experiment import (
     Experiment,
     generate_comparison_table,
+    list_experiment_results,
+    load_experiment_result,
     run_experiment,
     save_experiment_result,
+)
+from organizer.routing_tuner import (
+    RoutingTuner,
+    generate_tuning_report,
 )
 
 
@@ -315,6 +321,40 @@ def create_parser() -> argparse.ArgumentParser:
         "generated from the task type and timestamp.",
     )
 
+    # Routing tuning commands
+    parser.add_argument(
+        "--tune-routing",
+        nargs="?",
+        const="latest",
+        metavar="EXPERIMENT_FILE",
+        help="Analyze experiment results and recommend routing configuration. "
+        "If no file specified, uses the latest experiment result. "
+        "Use 'list' to show available experiment results.",
+    )
+
+    parser.add_argument(
+        "--apply-tuning",
+        action="store_true",
+        help="Apply the tuning recommendations to agent_config.json. "
+        "Only valid with --tune-routing.",
+    )
+
+    parser.add_argument(
+        "--min-accuracy",
+        type=float,
+        default=0.85,
+        metavar="ACCURACY",
+        help="Minimum acceptable accuracy for routing tuning (0.0-1.0). Default: 0.85",
+    )
+
+    parser.add_argument(
+        "--max-latency",
+        type=int,
+        default=5000,
+        metavar="MS",
+        help="Maximum acceptable p95 latency in milliseconds. Default: 5000",
+    )
+
     return parser
 
 
@@ -367,19 +407,21 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         or args.learn_status
     )
     has_experiment_action = args.experiment is not None
+    has_tune_action = args.tune_routing is not None
     if (
         not has_standard_action
         and not has_agent_action
         and not has_mcp_action
         and not has_learn_action
         and not has_experiment_action
+        and not has_tune_action
     ):
         errors.append(
             "Must specify at least one action: --scan, --plan, --execute, "
             "--agent-init-config, --agent-run, --agent-once, "
             "--agent-launchd-install, --agent-launchd-uninstall, "
             "--agent-launchd-status, --mcp-server, --learn-structure, "
-            "--learn-confirm, --learn-status, or --experiment"
+            "--learn-confirm, --learn-status, --experiment, or --tune-routing"
         )
 
     # Check execute-specific requirements
@@ -550,6 +592,30 @@ def validate_args(args: argparse.Namespace) -> list[str]:
     # Check --experiment-name is not used without --experiment
     if args.experiment_name and args.experiment is None:
         errors.append("--experiment-name can only be used with --experiment")
+
+    # Validate tune-routing arguments
+    if args.tune_routing is not None:
+        # Validate min_accuracy
+        if not 0.0 <= args.min_accuracy <= 1.0:
+            errors.append(
+                f"--min-accuracy must be between 0.0 and 1.0, got {args.min_accuracy}"
+            )
+
+        # Validate max_latency
+        if args.max_latency < 0:
+            errors.append(
+                f"--max-latency must be non-negative, got {args.max_latency}"
+            )
+
+        # If a specific file is given, check it exists
+        if args.tune_routing not in ("latest", "list"):
+            tune_path = Path(args.tune_routing)
+            if not tune_path.exists():
+                errors.append(f"Experiment file does not exist: {args.tune_routing}")
+
+    # Check --apply-tuning is not used without --tune-routing
+    if args.apply_tuning and args.tune_routing is None:
+        errors.append("--apply-tuning can only be used with --tune-routing")
 
     return errors
 
@@ -1720,6 +1786,108 @@ def run_experiment_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_tune_routing(args: argparse.Namespace) -> int:
+    """Analyze experiment results and recommend routing configuration.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
+    from organizer.llm_experiment import DEFAULT_EXPERIMENTS_DIR
+
+    experiments_dir = Path(DEFAULT_EXPERIMENTS_DIR)
+
+    # Handle "list" mode
+    if args.tune_routing == "list":
+        print("Available experiment results:")
+        print("-" * 60)
+        results = list_experiment_results(experiments_dir)
+        if not results:
+            print("No experiment results found.")
+            print(f"Run experiments first with --experiment, or check {experiments_dir}")
+            return 0
+
+        for i, result in enumerate(results, 1):
+            print(f"{i}. {result['name']}")
+            print(f"   Models: {', '.join(result.get('models', []))}")
+            print(f"   Agreement: {result.get('agreement_rate', 0):.1%}")
+            print(f"   File: {result['filepath']}")
+            print()
+        return 0
+
+    # Handle "latest" mode
+    if args.tune_routing == "latest":
+        results = list_experiment_results(experiments_dir)
+        if not results:
+            print("No experiment results found.", file=sys.stderr)
+            print("Run experiments first with --experiment", file=sys.stderr)
+            return 1
+
+        # Results are sorted by date descending, so first is latest
+        experiment_path = results[0]["filepath"]
+        print(f"Using latest experiment: {results[0]['name']}")
+    else:
+        experiment_path = args.tune_routing
+
+    # Load and analyze the experiment
+    print(f"Loading experiment from: {experiment_path}")
+    try:
+        experiment_result = load_experiment_result(experiment_path)
+    except Exception as e:
+        print(f"Error loading experiment: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Analyzing experiment: {experiment_result.experiment.name}")
+    print()
+
+    # Create tuner and analyze
+    tuner = RoutingTuner(
+        min_accuracy=args.min_accuracy,
+        max_latency_ms=args.max_latency,
+    )
+
+    analysis = tuner.analyze_experiment(experiment_result)
+    recommendations = tuner.generate_recommendations(analysis)
+
+    # Print the report
+    report = generate_tuning_report(analysis, recommendations)
+    print(report)
+
+    # Apply recommendations if requested
+    if args.apply_tuning:
+        print()
+        print("-" * 60)
+        print("APPLYING RECOMMENDATIONS")
+        print("-" * 60)
+
+        changes = tuner.apply_recommendations(recommendations, dry_run=False)
+
+        if changes.get("applied"):
+            print(f"Updated configuration at: {changes['config_path']}")
+            print(f"  Escalation threshold: {changes['escalation_threshold']['old']} → {changes['escalation_threshold']['new']}")
+            if changes.get("routing_table_updates"):
+                print("  Routing table updates:")
+                for update in changes["routing_table_updates"]:
+                    print(f"    {update['task_complexity']}: → {update['new_tier']}")
+            print()
+            print("Configuration updated successfully.")
+        else:
+            print("No changes applied (dry run).")
+    else:
+        # Show what would change
+        changes = tuner.apply_recommendations(recommendations, dry_run=True)
+        if changes["escalation_threshold"]["changed"] or changes.get("routing_table_updates"):
+            print()
+            print("-" * 60)
+            print("TO APPLY THESE RECOMMENDATIONS:")
+            print("-" * 60)
+            print(f"Run: python -m organizer --tune-routing {experiment_path} --apply-tuning")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the CLI.
 
@@ -1746,7 +1914,9 @@ def main(argv: list[str] | None = None) -> int:
         from organizer.mcp_server import run
         run()
         return 0
-    if args.experiment is not None:
+    if args.tune_routing is not None:
+        exit_code = run_tune_routing(args)
+    elif args.experiment is not None:
         exit_code = run_experiment_cli(args)
     elif args.learn_structure is not None:
         exit_code = run_learn_structure(args)

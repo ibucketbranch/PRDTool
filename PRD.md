@@ -717,7 +717,7 @@ A web-based dashboard that:
   - `python3 -m organizer --experiment classify --models llama3.1:8b,qwen2.5:14b --files /path/to/test/files/`
   - Output: side-by-side comparison table, agreement %, latency stats
   - Save results to `.organizer/experiments/{experiment_name}_{timestamp}.json`
-- [ ] Use experiments to tune model routing
+- [x] Use experiments to tune model routing
   - Run experiment on a representative sample of files from each bin
   - Measure: which model tier is "good enough" for each task type?
   - Results inform the `escalation_threshold` and default routing table

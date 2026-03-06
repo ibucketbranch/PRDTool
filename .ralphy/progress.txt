@@ -3963,3 +3963,33 @@ Implemented enrichment integration into the continuous agent cycle. Files are no
   - 64 tests pass, all linting checks pass
 - Task completed successfully
 
+
+## 2026-03-05
+- Implemented Phase 16.5 final task: "Use experiments to tune model routing"
+- Created organizer/routing_tuner.py with:
+  - TierPerformance dataclass: per-tier performance metrics
+  - TaskAnalysis dataclass: per-task type analysis with recommendations
+  - ExperimentAnalysis dataclass: complete experiment analysis results
+  - RoutingRecommendation dataclass: suggested config changes
+  - RoutingTuner class: analyzes experiments and generates recommendations
+  - _infer_tier_from_model_name(): infers FAST/SMART/CLOUD from model name
+  - _calculate_agreement_rate_for_model(): calculates majority agreement
+  - _extract_confidences_for_model(): extracts confidence scores
+  - analyze_experiment_file(): convenience function to analyze from file
+  - generate_tuning_report(): produces human-readable tuning report
+- Added CLI commands to organizer/cli.py:
+  - --tune-routing [EXPERIMENT_FILE]: analyze experiment and recommend config
+  - --tune-routing list: list available experiment results
+  - --tune-routing latest: use most recent experiment
+  - --apply-tuning: apply recommendations to agent_config.json
+  - --min-accuracy: set minimum accuracy threshold (default 0.85)
+  - --max-latency: set maximum p95 latency in ms (default 5000)
+- Created tests/test_routing_tuner.py with 29 unit tests covering:
+  - TierPerformance creation and is_good_enough() checks
+  - Tier inference from model names (8b=FAST, 14b=SMART, 480b=CLOUD)
+  - Agreement rate and confidence extraction
+  - Full RoutingTuner workflow: analyze -> recommend -> apply
+  - Dry-run vs actual config updates
+  - Configuration preservation when updating
+- All 29 tests pass, all linting passes
+- Task completed successfully
