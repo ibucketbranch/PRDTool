@@ -1156,7 +1156,6 @@ export async function naturalLanguageSearch(
         const shouldUseFTS = combinedTermsLength >= 3;
 
         if (shouldUseFTS) {
-          // Use FTS RPC function for stemming and relevance ranking
           const { data, error } = await supabase.rpc(
             "natural_language_search_fts",
             {
@@ -1166,13 +1165,12 @@ export async function naturalLanguageSearch(
                 parsedQuery.organizations.length > 0
                   ? parsedQuery.organizations
                   : null,
-              result_limit: limit * 2, // Fetch more to allow for enrichment merging
+              result_limit: limit * 2,
               result_offset: offset,
             }
           );
 
           if (error) {
-            // Fallback to ilike if FTS RPC fails
             console.warn(
               "FTS natural language search failed, falling back to ilike:",
               error.message
@@ -1186,7 +1184,32 @@ export async function naturalLanguageSearch(
             );
           }
 
-          // Map RPC result to expected format (with rank for sorting)
+          // If category filter produced 0 results, retry without it so
+          // FTS text matching can still surface relevant documents.
+          if (
+            (data === null || data.length === 0) &&
+            parsedQuery.category &&
+            allSearchTerms.length > 0
+          ) {
+            const { data: retryData, error: retryError } = await supabase.rpc(
+              "natural_language_search_fts",
+              {
+                search_terms: allSearchTerms,
+                category_filter: null,
+                organization_filters:
+                  parsedQuery.organizations.length > 0
+                    ? parsedQuery.organizations
+                    : null,
+                result_limit: limit * 2,
+                result_offset: offset,
+              }
+            );
+
+            if (!retryError && retryData && retryData.length > 0) {
+              return { data: retryData, error: null, usedFTS: true };
+            }
+          }
+
           return {
             data: data || [],
             error: null,
@@ -1323,48 +1346,60 @@ async function fallbackToIlikeSearch(
   error: { message: string } | null;
   usedFTS: boolean;
 }> {
-  // Build the query
-  let query = supabase.from("documents").select("*");
+  const buildIlikeQuery = (withCategory: boolean) => {
+    let q = supabase.from("documents").select("*");
 
-  // Apply category filter if detected
-  if (parsedQuery.category) {
-    query = query.eq("ai_category", parsedQuery.category);
-  }
+    if (withCategory && parsedQuery.category) {
+      q = q.eq("ai_category", parsedQuery.category);
+    }
 
-  // Build text search conditions
-  const textConditions: string[] = [];
+    const textConditions: string[] = [];
 
-  // Add organization search in entities JSONB and other text fields
-  for (const org of parsedQuery.organizations) {
-    // Search in ai_summary, file_name, and current_path
-    textConditions.push(`ai_summary.ilike.%${org}%`);
-    textConditions.push(`file_name.ilike.%${org}%`);
-    textConditions.push(`current_path.ilike.%${org}%`);
-  }
+    for (const org of parsedQuery.organizations) {
+      textConditions.push(`ai_summary.ilike.%${org}%`);
+      textConditions.push(`file_name.ilike.%${org}%`);
+      textConditions.push(`current_path.ilike.%${org}%`);
+    }
 
-  // Add remaining search terms
-  for (const term of parsedQuery.searchTerms) {
-    textConditions.push(`ai_summary.ilike.%${term}%`);
-    textConditions.push(`file_name.ilike.%${term}%`);
-    textConditions.push(`ai_category.ilike.%${term}%`);
-  }
+    for (const term of parsedQuery.searchTerms) {
+      textConditions.push(`ai_summary.ilike.%${term}%`);
+      textConditions.push(`file_name.ilike.%${term}%`);
+      textConditions.push(`ai_category.ilike.%${term}%`);
+    }
 
-  // If no category was detected but we have keywords, also search in ai_category
-  if (!parsedQuery.category && parsedQuery.originalQuery) {
-    textConditions.push(
-      `ai_category.ilike.%${parsedQuery.originalQuery.split(" ").join("%")}%`
-    );
-  }
+    if (!parsedQuery.category && parsedQuery.originalQuery) {
+      textConditions.push(
+        `ai_category.ilike.%${parsedQuery.originalQuery.split(" ").join("%")}%`
+      );
+    }
 
-  // Apply text conditions as OR
-  if (textConditions.length > 0) {
-    query = query.or(textConditions.join(","));
-  }
+    if (textConditions.length > 0) {
+      q = q.or(textConditions.join(","));
+    }
 
-  // Apply pagination (fetch more to allow for enrichment merging)
-  query = query.range(offset, offset + limit * 2 - 1).limit(limit * 2);
+    q = q.range(offset, offset + limit * 2 - 1).limit(limit * 2);
+    return q;
+  };
+
+  let query = buildIlikeQuery(true);
 
   const { data, error } = await query;
+
+  // If category filter produced 0 results, retry without it
+  if (
+    !error &&
+    (data === null || data.length === 0) &&
+    parsedQuery.category &&
+    allSearchTerms.length > 0
+  ) {
+    const retryQuery = buildIlikeQuery(false);
+    const { data: retryData, error: retryError } = await retryQuery;
+    return {
+      data: (retryData || []) as Document[],
+      error: retryError ? { message: retryError.message } : null,
+      usedFTS: false,
+    };
+  }
 
   return {
     data: (data || []) as Document[],
