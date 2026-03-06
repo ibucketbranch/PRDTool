@@ -154,7 +154,13 @@ PROJECT_VERSION_TOKENS = {
 
 @dataclass
 class ProposedAction:
-    """A proposed folder consolidation action for review or execution."""
+    """A proposed folder consolidation action for review or execution.
+
+    Priority levels for queue ordering:
+    - "high": Requires immediate attention (e.g., likely accidental drift)
+    - "normal": Standard priority for most actions
+    - "low": Can be deferred (e.g., likely intentional changes)
+    """
 
     action_id: str
     created_at: str
@@ -165,6 +171,7 @@ class ProposedAction:
     reasoning: list[str] = field(default_factory=list)
     action_type: str = "move"
     status: str = "pending"
+    priority: str = "normal"  # "high", "normal", or "low"
 
 
 class ContinuousOrganizerAgent:
@@ -1171,6 +1178,10 @@ class ContinuousOrganizerAgent:
 
         Drift actions are always queued for review (never auto-executed).
         High-priority (likely_accidental) drifts should be reviewed first.
+
+        Priority mapping:
+        - likely_accidental -> "high" (red in dashboard)
+        - likely_intentional -> "low" (yellow in dashboard)
         """
         # Build reasoning list
         reasoning = [
@@ -1187,6 +1198,11 @@ class ContinuousOrganizerAgent:
         # Determine target: use suggested destination if available, otherwise original
         target = drift.suggested_destination or drift.original_filed_path
 
+        # Set priority based on drift assessment
+        # likely_accidental = high priority (red in dashboard)
+        # likely_intentional = low priority (yellow in dashboard)
+        priority = drift.priority
+
         return ProposedAction(
             action_id=f"{cycle_id}:refile_drift:{action_index}",
             created_at=_now_iso(),
@@ -1197,6 +1213,7 @@ class ContinuousOrganizerAgent:
             reasoning=reasoning,
             action_type="refile_drift",
             status="pending",
+            priority=priority,
         )
 
     def _process_drift(
@@ -1286,6 +1303,7 @@ class ContinuousOrganizerAgent:
                         "original_path": d.original_filed_path,
                         "current_path": d.current_path,
                         "assessment": d.drift_assessment,
+                        "priority": d.priority,
                         "confidence": d.confidence,
                         "reason": d.reason,
                     }

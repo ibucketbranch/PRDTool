@@ -533,7 +533,7 @@ A web-based dashboard that:
   - Runs last in cycle; only checks files filed in the last N days (default 90)
   - `ProposedAction` with `action_type="refile_drift"`, always queued for review
   - Each proposal includes `reason` and `model_used`
-- [ ] Distinguish intentional from accidental drift for queue priority
+- [x] Distinguish intentional from accidental drift for queue priority
   - `likely_accidental` = high priority (red in dashboard); `likely_intentional` = low priority (yellow)
   - If file moved to In-Box: skip (Filing-Agent handles it on next cycle)
 - [ ] Update routing history on refile

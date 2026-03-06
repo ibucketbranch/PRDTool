@@ -1210,6 +1210,8 @@ def test_drift_record_to_action_conversion(tmp_path: Path) -> None:
     assert action.group_name == "refile_drift"
     assert action.confidence == 0.92
     assert action.status == "pending"
+    # likely_accidental -> high priority
+    assert action.priority == "high"
 
     # Verify reasoning includes expected fields
     reasoning = action.reasoning
@@ -1254,6 +1256,106 @@ def test_drift_record_uses_suggested_destination_when_available(tmp_path: Path) 
     assert action.target_folder == str(base / "Work Bin" / "Projects" / "report.pdf")
     # Verify suggested_destination is in reasoning
     assert any("suggested_destination=" in r for r in action.reasoning)
+    # likely_accidental -> high priority
+    assert action.priority == "high"
+
+
+def test_drift_intentional_gets_low_priority(tmp_path: Path) -> None:
+    """Test that likely_intentional drift gets low priority."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # Create a drift record with intentional assessment (user reorganized)
+    drift = DriftRecord(
+        file_path=str(base / "VA" / "Claims" / "medical_record.pdf"),
+        original_filed_path=str(base / "Health" / "Records" / "medical_record.pdf"),
+        current_path=str(base / "VA" / "Claims" / "medical_record.pdf"),
+        filed_by="inbox_processor",
+        drift_assessment="likely_intentional",
+        reason="File moved to valid taxonomy location (VA Claims)",
+        model_used="llama3.1:8b",
+        confidence=0.82,
+    )
+
+    action = agent._drift_record_to_action(drift, "cycle789", 1)
+
+    # likely_intentional -> low priority (yellow in dashboard)
+    assert action.priority == "low"
+    assert action.action_type == "refile_drift"
+
+
+def test_drift_unknown_assessment_gets_normal_priority(tmp_path: Path) -> None:
+    """Test that unknown/empty assessment gets normal priority."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # Create a drift record with empty assessment
+    drift = DriftRecord(
+        file_path=str(base / "misc" / "file.pdf"),
+        original_filed_path=str(base / "Archive" / "file.pdf"),
+        current_path=str(base / "misc" / "file.pdf"),
+        filed_by="inbox_processor",
+        drift_assessment="",  # Unknown/empty assessment
+        reason="",
+        model_used="",
+        confidence=0.5,
+    )
+
+    action = agent._drift_record_to_action(drift, "cycle000", 1)
+
+    # Unknown assessment -> normal priority
+    assert action.priority == "normal"
+
+
+def test_drift_summary_includes_priority(tmp_path: Path) -> None:
+    """Test that drift summary includes priority field for each drift."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    # Create drift records with different assessments
+    accidental_drift = DriftRecord(
+        file_path=str(base / "Desktop" / "file1.pdf"),
+        original_filed_path=str(base / "Finances Bin" / "file1.pdf"),
+        current_path=str(base / "Desktop" / "file1.pdf"),
+        drift_assessment="likely_accidental",
+        confidence=0.9,
+        reason="Desktop drop",
+    )
+
+    intentional_drift = DriftRecord(
+        file_path=str(base / "VA" / "file2.pdf"),
+        original_filed_path=str(base / "Health" / "file2.pdf"),
+        current_path=str(base / "VA" / "file2.pdf"),
+        drift_assessment="likely_intentional",
+        confidence=0.85,
+        reason="Valid taxonomy",
+    )
+
+    # Verify priority is correct for each record
+    # likely_accidental -> high priority (red in dashboard)
+    assert accidental_drift.priority == "high"
+    # likely_intentional -> low priority (yellow in dashboard)
+    assert intentional_drift.priority == "low"
 
 
 def test_drift_disabled_returns_empty_summary(tmp_path: Path) -> None:

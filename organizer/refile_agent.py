@@ -144,6 +144,21 @@ class DriftRecord:
         """Check if drift is likely intentional (low priority)."""
         return self.drift_assessment == "likely_intentional"
 
+    @property
+    def priority(self) -> str:
+        """Get queue priority based on drift assessment.
+
+        Returns:
+            "high" for likely_accidental (red in dashboard),
+            "low" for likely_intentional (yellow in dashboard),
+            "normal" for unknown assessments.
+        """
+        if self.drift_assessment == "likely_accidental":
+            return "high"
+        elif self.drift_assessment == "likely_intentional":
+            return "low"
+        return "normal"
+
 
 @dataclass
 class DriftDetectionResult:

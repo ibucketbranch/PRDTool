@@ -3216,3 +3216,29 @@ Task completed successfully.
   - `test_drift_config_options`: Tests config loading and path resolution
 - All new tests pass, linting passes (pre-existing issues ignored)
 - Task completed successfully
+
+## 2026-03-05
+- Completed Phase 14 task: "Distinguish intentional from accidental drift for queue priority"
+  - Added `priority` field to `ProposedAction` dataclass in continuous_agent.py
+    - Values: "high", "normal", or "low"
+    - Default: "normal"
+    - Docstring explains priority levels for queue ordering
+  - Added `priority` property to `DriftRecord` dataclass in refile_agent.py
+    - Returns "high" for `likely_accidental` (red in dashboard)
+    - Returns "low" for `likely_intentional` (yellow in dashboard)
+    - Returns "normal" for unknown/empty assessment
+  - Updated `_drift_record_to_action()` in continuous_agent.py
+    - Now sets priority based on `drift.priority` property
+    - Docstring updated to explain priority mapping
+  - Updated drift summary in `_process_drift()` to include priority field
+  - Added 3 new tests to `test_refile_agent.py`:
+    - `test_priority_high_for_accidental`: Verifies high priority for accidental drift
+    - `test_priority_low_for_intentional`: Verifies low priority for intentional drift
+    - `test_priority_normal_for_unknown`: Verifies normal priority for empty assessment
+  - Added 4 new tests to `test_continuous_agent.py`:
+    - `test_drift_intentional_gets_low_priority`: Verifies low priority action creation
+    - `test_drift_unknown_assessment_gets_normal_priority`: Verifies normal priority
+    - `test_drift_summary_includes_priority`: Verifies priority in drift records
+    - Updated `test_drift_record_to_action_conversion` to verify high priority
+  - All 13 drift tests pass, linting passes
+  - Task "Distinguish intentional from accidental drift for queue priority" marked complete in PRD.md

@@ -215,6 +215,39 @@ class TestDriftRecord:
         assert record.is_likely_intentional is True
         assert record.is_likely_accidental is False
 
+    def test_priority_high_for_accidental(self):
+        """Test priority is 'high' for likely_accidental drift."""
+        record = DriftRecord(
+            file_path="/Desktop/file.pdf",
+            original_filed_path="/Finances Bin/file.pdf",
+            current_path="/Desktop/file.pdf",
+            drift_assessment="likely_accidental",
+        )
+
+        assert record.priority == "high"
+
+    def test_priority_low_for_intentional(self):
+        """Test priority is 'low' for likely_intentional drift."""
+        record = DriftRecord(
+            file_path="/VA/Claims/file.pdf",
+            original_filed_path="/Finances Bin/file.pdf",
+            current_path="/VA/Claims/file.pdf",
+            drift_assessment="likely_intentional",
+        )
+
+        assert record.priority == "low"
+
+    def test_priority_normal_for_unknown(self):
+        """Test priority is 'normal' for unknown assessment."""
+        record = DriftRecord(
+            file_path="/path",
+            original_filed_path="/original",
+            current_path="/path",
+            drift_assessment="",  # Unknown/empty
+        )
+
+        assert record.priority == "normal"
+
     def test_to_dict(self):
         """Test conversion to dictionary."""
         record = DriftRecord(
