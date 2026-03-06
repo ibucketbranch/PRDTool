@@ -813,6 +813,116 @@ A web-based dashboard that:
 
 ---
 
+### Phase 19: Content Ingestion and Intelligence Layer (Goldilocks)
+
+> The organizing system can move folders by name, but it cannot read files.
+> This phase builds a lightweight ingestion pipeline that extracts just enough
+> content (filename + path + first 500 chars) to classify files accurately via
+> local Ollama LLM, populating the SQLite database that the existing
+> `content_analyzer.py` already knows how to query. Once populated, the agent
+> gains true content-aware intelligence for filing decisions.
+
+**Design philosophy:** "Just enough to classify, not enough to slow you down."
+Three signals per file: filename, path context, and content preview (first 500 chars).
+No OCR. No full-document parsing. No cloud APIs.
+
+**Existing code that lights up once the DB is populated:**
+- `organizer/content_analyzer.py` -- 1,260 lines of analysis/decision logic (fully coded, needs data)
+- `organizer/database_updater.py` -- DB connection helpers, location tracking
+- `organizer/consolidation_planner.py` -- `group_similar_folders_content_aware()` (fully coded, gated by `content_aware` flag)
+- `DefaultDocumentProcessor.process_file()` -- stub that needs a real implementation
+
+**File landscape (iCloud Drive):** ~2,602 PDFs, 20 DOCX, 18 XLSX, 31 TXT, 269 HTML, 52 JSON (~3,000 text-accessible files). Images (PNGs, TIFFs, JPGs) are indexed by filename/path only -- no content extraction.
+
+#### 19.1 Dependencies and Database Schema
+- [ ] Install Python packages: `pdfplumber`, `python-docx`, `openpyxl`, `ollama`
+- [ ] Add to `requirements.txt` with pinned versions
+- [ ] Create `organizer/schema.py` with `init_database(db_path)` function
+- [ ] `documents` table: `id` (INTEGER PK), `filename` (TEXT), `current_path` (TEXT UNIQUE), `file_hash` (TEXT), `file_size` (INTEGER), `file_extension` (TEXT), `ai_category` (TEXT), `ai_subcategories` (TEXT/JSON), `ai_summary` (TEXT), `entities` (TEXT/JSON), `key_dates` (TEXT/JSON), `folder_hierarchy` (TEXT/JSON), `original_path` (TEXT), `canonical_folder` (TEXT), `rename_status` (TEXT), `content_preview` (TEXT), `classification_confidence` (REAL), `classification_model` (TEXT), `indexed_at` (TEXT), `updated_at` (TEXT)
+- [ ] `document_locations` table: `id` (INTEGER PK), `document_id` (INTEGER FK), `path` (TEXT), `location_type` (TEXT), `created_at` (TEXT)
+- [ ] Indexes on `current_path`, `file_hash`, `ai_category`, `classification_confidence`
+- [ ] Schema must align with columns expected by `content_analyzer.py`'s `get_folder_metadata()` query
+
+#### 19.2 Light Extractor
+- [ ] Create `organizer/light_extractor.py`
+- [ ] `FileSignals` dataclass: `file_path`, `filename`, `parent_folders` (list), `extension`, `file_size`, `modified_date`, `content_preview` (first 500 chars), `extraction_method`
+- [ ] `collect_signals(file_path: str) -> FileSignals`
+- [ ] **Text-accessible files (extract first 500 chars):**
+  - `.pdf` -- pdfplumber, page 1 only, first 500 chars
+  - `.docx` -- python-docx, first 2 paragraphs, first 500 chars
+  - `.xlsx` -- openpyxl, sheet names + first row of first sheet
+  - `.txt/.md/.csv/.log/.rtf` -- direct read, first 500 chars
+  - `.json/.xml/.yaml/.yml` -- direct read, first 500 chars
+  - `.html/.htm` -- direct read (strip tags optional), first 500 chars
+  - `.pptx` -- python-pptx, first slide text, first 500 chars (cheap -- same library pattern as docx)
+  - `.doc/.key/.numbers/.pages` -- macOS `textutil -convert txt -stdout` (built-in, zero-cost)
+- [ ] **Filename + path only (no content extraction):**
+  - Images: `.png`, `.jpg`, `.jpeg`, `.gif`, `.tiff`, `.bmp`, `.heic`
+  - Video: `.mp4`, `.mov`, `.m4v`, `.avi`
+  - Audio: `.mp3`, `.m4a`, `.wav`
+  - Archives: `.zip`, `.gz`, `.tar`, `.dmg`
+  - Binaries: `.exe`, `.app`, `.pkg`, `.iso`
+  - All other unrecognized extensions
+- [ ] iCloud-safe: `os.scandir()`, skip `.icloud` placeholders, 5MB file size cap
+- [ ] Tests: `test_light_extractor.py`
+
+#### 19.3 LLM Classifier
+- [ ] Create `organizer/llm_classifier.py`
+- [ ] `Classification` dataclass: `category`, `subcategory`, `entities` (list), `key_dates` (list), `summary`, `confidence` (float), `model_used`
+- [ ] `classify_file(signals: FileSignals) -> Classification`
+- [ ] Primary model: `llama3.1:8b-instruct-q8_0` (from agent_config `llm_models.fast`)
+- [ ] Escalation: if confidence < 0.7, retry with `qwen2.5-coder:14b` (`llm_models.smart`)
+- [ ] Categories must match canonical bins: Work, Personal, Family, Finances, Legal, VA, Archive
+- [ ] Structured prompt sends filename + path + preview, requests JSON response
+- [ ] Keyword fallback: if Ollama unavailable, use `file_dna.py`'s `extract_tags_from_filename()` heuristics
+- [ ] Rate limiting: configurable delay between Ollama calls (default 0.5s)
+- [ ] Tests: `test_llm_classifier.py` (mock Ollama responses)
+
+#### 19.4 Ingestion Pipeline
+- [ ] Create `organizer/ingestion_pipeline.py`
+- [ ] `IngestionPipeline` class with:
+  - `scan(base_path, max_depth)` -- walk filesystem, find un-indexed files (not in DB by hash)
+  - `ingest_file(file_path)` -- collect signals -> classify -> store in DB
+  - `ingest_batch(file_paths, batch_size=20)` -- process with progress, commit DB every batch
+  - `ingest_all(base_path, max_depth)` -- full scan + ingest
+- [ ] Resume support: skip files already in DB by `file_hash`
+- [ ] `IngestionProgress` dataclass: `total`, `processed`, `skipped`, `failed`, `elapsed_seconds`
+- [ ] Interruptible: checkpoints after each batch commit
+- [ ] iCloud-safe: `os.scandir()`, skip `.icloud` placeholders, respect `max_depth`
+- [ ] Tests: `test_ingestion_pipeline.py`
+
+#### 19.5 Wire into Existing System
+- [ ] Replace `DefaultDocumentProcessor` stub in `content_analyzer.py` with `GoldilocksProcessor` that calls `LightExtractor` + `LLMClassifier` + DB write
+- [ ] Update `agent_config.json`:
+  - `db_path`: `.organizer/organizer.db`
+  - `content_aware`: `true`
+  - `consolidation_scan_enabled`: `true`
+  - `analyze_missing`: `true`
+  - New: `ingestion_enabled`: `true`
+  - New: `ingestion_max_files_per_cycle`: `50`
+- [ ] Update `continuous_agent.py` `run_cycle()`: add ingestion step before consolidation planning -- ingest up to `ingestion_max_files_per_cycle` new/changed files per cycle
+- [ ] Agent becomes progressively smarter each hourly cycle
+
+#### 19.6 CLI Commands
+- [ ] `--ingest [path]` -- run ingestion on a folder (default: entire base_path)
+- [ ] `--ingest-status` -- show indexed vs total files, last run time, confidence distribution
+- [ ] `--classify <file>` -- classify a single file and print result (for testing/debugging)
+- [ ] `--db-stats` -- show category breakdown, entity counts, date range coverage
+
+#### 19.7 Dashboard Integration
+- [ ] API endpoint `/api/content-index/stats` -- indexing progress, category distribution
+- [ ] API endpoint `/api/content-index/search` -- search by entities, dates, content preview
+- [ ] Update search page to show `ai_summary` and `entities` in results when available
+- [ ] Add indexing progress indicator to dashboard home
+
+#### Phase 19 Tests
+- [ ] `test_light_extractor.py`: PDF page-1 extraction, DOCX paragraph extraction, plain text read, iCloud placeholder skip, file size cap
+- [ ] `test_llm_classifier.py`: mock Ollama classification, confidence escalation, keyword fallback, category validation
+- [ ] `test_ingestion_pipeline.py`: scan finds un-indexed files, batch processing, resume by hash, progress tracking
+- [ ] `test_schema.py`: database creation, schema validation, column alignment with content_analyzer.py
+
+---
+
 ## Success Criteria
 - ✅ Shows file type counts (categories) with visual charts
 - ✅ Natural language search works: "Show me a file that is a verizon bill from 2024?"
@@ -836,6 +946,11 @@ A web-based dashboard that:
 - ✅ Fast and responsive UI
 - Dashboard search uses FTS index with stemming and relevance ranking
 - Menu bar app launches, displays dashboard in native window, handles server-down
+- Content ingestion indexes files using filename + path + first 500 chars (Goldilocks)
+- LLM classifier assigns category, entities, dates, and summary via local Ollama
+- Agent gains content-aware intelligence for filing decisions after DB is populated
+- `--ingest` CLI command indexes all files; `--classify <file>` tests single-file classification
+- Dashboard shows indexing progress and content-aware search results
 
 ## Example Queries to Support
 - "Show me a file that is a verizon bill from 2024?"
