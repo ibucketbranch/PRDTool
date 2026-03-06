@@ -571,7 +571,7 @@ A web-based dashboard that:
   - Primary model: **T2 Smart**
   - For each folder, prompt: `"Folder '{folder_name}' contains these files: {filename_list}. What routing rule describes what belongs here? Reply JSON {pattern, destination, confidence, reasoning}"`
   - Output `learned_routing_rules.json`
-- [ ] LLM-powered structure narration
+- [x] LLM-powered structure narration
   - After analysis, **T2 Smart** generates plain-English strategy description:
     `"Summarize this organizational strategy in 2-3 sentences for a non-technical user: {structure_json}"`
   - Stored in `learned_structure.json` as `strategy_description`; displayed in dashboard
