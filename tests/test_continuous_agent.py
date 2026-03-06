@@ -1538,3 +1538,376 @@ def test_drift_config_options(tmp_path: Path) -> None:
     # After resolve_paths, the routing history file should be an absolute path
     config.resolve_paths()
     assert Path(config.refile_routing_history_file).is_absolute()
+
+
+# =============================================================================
+# Phase 16.3: Enrichment Integration Tests
+# =============================================================================
+
+
+def test_enrichment_config_options_default() -> None:
+    """Test that enrichment config options have correct defaults."""
+    config = ContinuousAgentConfig(base_path=".")
+
+    assert config.enrichment_enabled is True
+    assert config.enrichment_cache_file == ".organizer/agent/enrichment_cache.json"
+    assert config.enrichment_on_inbox is True
+    assert config.enrichment_on_dna_registration is True
+
+
+def test_enrichment_config_resolve_paths(tmp_path: Path) -> None:
+    """Test that enrichment cache file path is resolved correctly."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+
+    config.resolve_paths()
+    assert Path(config.enrichment_cache_file).is_absolute()
+
+
+def test_enrichment_disabled_in_config(tmp_path: Path) -> None:
+    """Test that enrichment can be disabled via config."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_enabled=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # When disabled, enricher should be None
+    assert agent._enricher is None
+
+
+def test_enrichment_enabled_creates_enricher(tmp_path: Path) -> None:
+    """Test that enrichment creates an LLMEnricher when enabled."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_enabled=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # When enabled, enricher should be created
+    assert agent._enricher is not None
+
+
+def test_enrich_file_nonblocking_success(tmp_path: Path) -> None:
+    """Test that _enrich_file_nonblocking returns correct structure on success."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    test_file = base / "test_invoice_2024.txt"
+    test_file.write_text("Invoice from Acme Corp for $500", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_enabled=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._enrich_file_nonblocking(str(test_file))
+
+    assert result["enriched"] is True
+    assert result["error"] == ""
+    # Should have document type
+    assert "document_type" in result
+    # Result should indicate whether keyword fallback was used
+    assert "used_keyword_fallback" in result
+
+
+def test_enrich_file_nonblocking_file_not_found(tmp_path: Path) -> None:
+    """Test that _enrich_file_nonblocking handles missing files gracefully."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_enabled=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._enrich_file_nonblocking(str(base / "nonexistent.pdf"))
+
+    assert result["enriched"] is False
+    assert result["error"] == "file_not_found"
+
+
+def test_enrich_file_nonblocking_enricher_disabled(tmp_path: Path) -> None:
+    """Test that _enrich_file_nonblocking returns disabled error when enricher is None."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    test_file = base / "test.txt"
+    test_file.write_text("content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_enabled=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._enrich_file_nonblocking(str(test_file))
+
+    assert result["enriched"] is False
+    assert result["error"] == "enricher_disabled"
+
+
+def test_register_file_dna_with_enrichment(tmp_path: Path) -> None:
+    """Test that _register_file_dna can trigger enrichment."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    test_file = base / "test_tax_document_2024.txt"
+    test_file.write_text("Tax form W-2 from IRS", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        dna_registration_enabled=True,
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        enrichment_enabled=True,
+        enrichment_on_dna_registration=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._register_file_dna(
+        str(test_file),
+        origin="test",
+        destination=str(test_file),
+        enrich=True,
+    )
+
+    assert result["dna_registered"] is True
+    assert result["enrichment_result"] is not None
+    assert result["enrichment_result"]["enriched"] is True
+
+
+def test_register_file_dna_without_enrichment(tmp_path: Path) -> None:
+    """Test that _register_file_dna can skip enrichment when disabled."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    test_file = base / "test.txt"
+    test_file.write_text("content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        dna_registration_enabled=True,
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        enrichment_enabled=True,
+        enrichment_on_dna_registration=False,  # Disabled for this test
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._register_file_dna(
+        str(test_file),
+        origin="test",
+        enrich=False,  # Explicitly disabled
+    )
+
+    assert result["dna_registered"] is True
+    assert result["enrichment_result"] is None
+
+
+def test_cycle_summary_includes_enrichment_stats(tmp_path: Path) -> None:
+    """Test that cycle summary includes enrichment statistics."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    (base / "In-Box").mkdir()
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_enabled=True,
+        enrichment_on_inbox=True,
+        enrichment_on_dna_registration=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        dna_registration_enabled=False,  # Disable DNA to simplify test
+        inbox_enabled=False,
+        scatter_enabled=False,
+        dedup_enabled=False,
+        refile_enabled=False,
+        project_homing_enabled=False,
+        root_strays_enabled=False,
+        auto_execute=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    cycle_summary = agent.run_cycle()
+
+    # Check enrichment summary is present
+    assert "enrichment" in cycle_summary
+    enrichment = cycle_summary["enrichment"]
+    assert enrichment["enabled"] is True
+    assert enrichment["on_inbox"] is True
+    assert enrichment["on_dna_registration"] is True
+    assert "inbox_enriched" in enrichment
+    assert "scan_enriched" in enrichment
+    assert "consolidation_enriched" in enrichment
+    assert "total_enriched" in enrichment
+
+
+def test_scan_and_register_includes_enrichment(tmp_path: Path) -> None:
+    """Test that _scan_and_register_new_files includes enrichment in results."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    test_file = base / "test_document.txt"
+    test_file.write_text("Some document content", encoding="utf-8")
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        dna_registration_enabled=True,
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        dna_scan_on_cycle=True,
+        dna_max_scan_files=10,
+        enrichment_enabled=True,
+        enrichment_on_dna_registration=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    result = agent._scan_and_register_new_files("cycle123")
+
+    assert result["enabled"] is True
+    assert result["scanned"] >= 1
+    assert result["registered"] >= 1
+    assert "enriched" in result
+
+
+def test_register_files_from_move_results_includes_enrichment(tmp_path: Path) -> None:
+    """Test that _register_files_from_move_results tracks enrichment."""
+    from dataclasses import dataclass
+    from enum import Enum
+
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    test_file = base / "test_invoice.txt"
+    test_file.write_text("Invoice content from Amazon", encoding="utf-8")
+
+    # Create mock FileMoveResult
+    class MockStatus(Enum):
+        success = "success"
+        failed = "failed"
+
+    @dataclass
+    class MockFileMoveResult:
+        target_path: str
+        status: MockStatus
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        dna_registration_enabled=True,
+        dna_registry_file=str(tmp_path / "agent" / "file_dna.json"),
+        enrichment_enabled=True,
+        enrichment_on_dna_registration=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    mock_results = [
+        MockFileMoveResult(target_path=str(test_file), status=MockStatus.success),
+    ]
+
+    result = agent._register_files_from_move_results(
+        mock_results, origin="test", enrich=True
+    )
+
+    assert "registered" in result
+    assert "skipped" in result
+    assert "enriched" in result
+    assert result["registered"] >= 1
+
+
+def test_enrichment_nonblocking_does_not_fail_cycle(tmp_path: Path) -> None:
+    """Test that enrichment errors don't fail the agent cycle."""
+    base = tmp_path / "root"
+    base.mkdir(parents=True)
+    (base / "In-Box").mkdir()
+
+    config = ContinuousAgentConfig(
+        base_path=str(base),
+        enrichment_enabled=True,
+        enrichment_cache_file=str(tmp_path / "agent" / "enrichment_cache.json"),
+        inbox_enabled=False,
+        scatter_enabled=False,
+        dedup_enabled=False,
+        refile_enabled=False,
+        project_homing_enabled=False,
+        root_strays_enabled=False,
+        auto_execute=False,
+        queue_dir=str(tmp_path / "queue"),
+        plans_dir=str(tmp_path / "plans"),
+        logs_dir=str(tmp_path / "logs"),
+        state_file=str(tmp_path / "agent" / "state.json"),
+        empty_folder_policy_file=str(tmp_path / "agent" / "empty_folder_policy.json"),
+    )
+    agent = ContinuousOrganizerAgent(config)
+
+    # Even if files don't exist or enrichment fails, cycle should complete
+    cycle_summary = agent.run_cycle()
+
+    assert cycle_summary is not None
+    assert "cycle_id" in cycle_summary
+    assert "enrichment" in cycle_summary

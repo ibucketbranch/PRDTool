@@ -32,6 +32,7 @@ from organizer.dry_run_validator import validate_dry_run
 from organizer.file_dna import DNARegistry
 from organizer.file_operations import execute_consolidation_plan
 from organizer.inbox_processor import InboxProcessor, InboxRouting
+from organizer.llm_enrichment import LLMEnricher
 from organizer.refile_agent import DriftRecord, ReFileAgent
 from organizer.routing_history import RoutingHistory
 from organizer.scatter_detector import ScatterDetector, ScatterViolation
@@ -93,6 +94,11 @@ class ContinuousAgentConfig:
     refile_enabled: bool = True
     refile_lookback_days: int = 90
     refile_routing_history_file: str = ".organizer/agent/routing_history.json"
+    # Enrichment settings
+    enrichment_enabled: bool = True
+    enrichment_cache_file: str = ".organizer/agent/enrichment_cache.json"
+    enrichment_on_inbox: bool = True  # Enrich after successful inbox filing
+    enrichment_on_dna_registration: bool = True  # Enrich after DNA registration
 
     @classmethod
     def load(cls, path: str | Path) -> "ContinuousAgentConfig":
@@ -136,6 +142,10 @@ class ContinuousAgentConfig:
         if self.refile_routing_history_file:
             self.refile_routing_history_file = str(
                 Path(self.refile_routing_history_file).resolve()
+            )
+        if self.enrichment_cache_file:
+            self.enrichment_cache_file = str(
+                Path(self.enrichment_cache_file).resolve()
             )
 
 
@@ -182,7 +192,9 @@ class ContinuousOrganizerAgent:
         self.config.resolve_paths()
         self._ensure_directories()
         self._dna_registry: DNARegistry | None = None
+        self._enricher: LLMEnricher | None = None
         self._init_dna_registry()
+        self._init_enricher()
 
     def _ensure_directories(self) -> None:
         Path(self.config.queue_dir).mkdir(parents=True, exist_ok=True)
@@ -229,84 +241,187 @@ class ContinuousOrganizerAgent:
             use_llm=llm_client is not None,
         )
 
+    def _init_enricher(self) -> None:
+        """Initialize the LLM enricher for metadata extraction."""
+        if not self.config.enrichment_enabled:
+            return
+
+        llm_client = None
+        model_router = None
+        prompt_registry = None
+
+        try:
+            from organizer.llm_client import LLMClient
+            from organizer.model_router import ModelRouter
+            from organizer.prompt_registry import PromptRegistry
+
+            llm_client = LLMClient()
+            model_router = ModelRouter(llm_client)
+            prompt_registry = PromptRegistry()
+        except Exception:
+            # LLM not available, will use keyword fallback for enrichment
+            pass
+
+        self._enricher = LLMEnricher(
+            llm_client=llm_client,
+            model_router=model_router,
+            prompt_registry=prompt_registry,
+            cache_path=self.config.enrichment_cache_file,
+            use_llm=llm_client is not None,
+            use_cache=True,
+        )
+
+    def _enrich_file_nonblocking(self, file_path: str) -> dict[str, Any]:
+        """Enrich a file with metadata (non-blocking to filing flow).
+
+        Enrichment is performed synchronously but errors are caught to ensure
+        it doesn't block or fail the filing operation. The enrichment data is
+        cached and can be stored alongside File DNA.
+
+        Args:
+            file_path: Path to the file to enrich.
+
+        Returns:
+            Summary of enrichment result (enriched: bool, cached: bool, error: str).
+        """
+        if self._enricher is None:
+            return {"enriched": False, "cached": False, "error": "enricher_disabled"}
+
+        try:
+            path = Path(file_path)
+            if not path.exists() or not path.is_file():
+                return {"enriched": False, "cached": False, "error": "file_not_found"}
+
+            # Perform enrichment (non-blocking - errors don't propagate)
+            enrichment = self._enricher.enrich(file_path)
+
+            return {
+                "enriched": True,
+                "cached": not enrichment.used_keyword_fallback,
+                "document_type": enrichment.document_type,
+                "model_used": enrichment.model_used,
+                "used_keyword_fallback": enrichment.used_keyword_fallback,
+                "error": "",
+            }
+        except Exception as e:
+            # Enrichment is non-blocking; don't fail the cycle
+            return {"enriched": False, "cached": False, "error": str(e)}
+
     def _register_file_dna(
-        self, file_path: str, origin: str, destination: str = ""
-    ) -> None:
-        """Register a file's DNA after a successful move.
+        self,
+        file_path: str,
+        origin: str,
+        destination: str = "",
+        enrich: bool = True,
+    ) -> dict[str, Any]:
+        """Register a file's DNA after a successful move and optionally enrich.
 
         Args:
             file_path: Path to the file to register.
             origin: How the file was processed ("inbox", "consolidation", "scan").
             destination: Optional destination path if the file was moved.
+            enrich: Whether to also enrich the file (default True).
+
+        Returns:
+            Summary with dna_registered and enrichment_result.
         """
+        result: dict[str, Any] = {
+            "dna_registered": False,
+            "enrichment_result": None,
+        }
+
         if self._dna_registry is None:
-            return
+            return result
 
         try:
             path = Path(file_path)
             if not path.exists() or not path.is_file():
-                return
+                return result
 
             self._dna_registry.register_file(file_path, origin=origin)
             if destination:
                 self._dna_registry.update_routed_to(file_path, destination)
+            result["dna_registered"] = True
+
+            # Enrich after DNA registration if enabled
+            if (
+                enrich
+                and self.config.enrichment_enabled
+                and self.config.enrichment_on_dna_registration
+            ):
+                enrichment_result = self._enrich_file_nonblocking(file_path)
+                result["enrichment_result"] = enrichment_result
+
         except Exception:
             # DNA registration is non-blocking; don't fail the cycle
             pass
+
+        return result
 
     def _register_files_from_move_results(
         self,
         file_results: list,
         origin: str,
+        enrich: bool = True,
     ) -> dict[str, Any]:
         """Register DNA for files from move operation results.
 
         Args:
             file_results: List of FileMoveResult or similar objects.
             origin: Origin type for DNA registration.
+            enrich: Whether to also enrich the files (default True).
 
         Returns:
-            Summary of DNA registration results.
+            Summary of DNA registration and enrichment results.
         """
         registered = 0
         skipped = 0
+        enriched = 0
 
         for result in file_results:
             # Handle both FileMoveResult and FolderMoveResult
             if hasattr(result, "file_results"):
                 # FolderMoveResult - recursively process
                 sub_summary = self._register_files_from_move_results(
-                    result.file_results, origin
+                    result.file_results, origin, enrich
                 )
                 registered += sub_summary["registered"]
                 skipped += sub_summary["skipped"]
+                enriched += sub_summary.get("enriched", 0)
             elif hasattr(result, "target_path") and hasattr(result, "status"):
                 # FileMoveResult
                 if result.status.value == "success":
-                    self._register_file_dna(
+                    reg_result = self._register_file_dna(
                         result.target_path,
                         origin=origin,
                         destination=result.target_path,
+                        enrich=enrich,
                     )
-                    registered += 1
+                    if reg_result.get("dna_registered"):
+                        registered += 1
+                    else:
+                        skipped += 1
+                    if reg_result.get("enrichment_result", {}).get("enriched"):
+                        enriched += 1
                 else:
                     skipped += 1
             else:
                 skipped += 1
 
-        return {"registered": registered, "skipped": skipped}
+        return {"registered": registered, "skipped": skipped, "enriched": enriched}
 
     def _scan_and_register_new_files(self, cycle_id: str) -> dict[str, Any]:
         """Scan for new files and register their DNA.
 
         During a full scan, discovers files not yet in the DNA registry
-        and registers them with origin="scan".
+        and registers them with origin="scan". Also enriches new files
+        if enrichment is enabled.
 
         Args:
             cycle_id: Current cycle identifier for logging.
 
         Returns:
-            Summary of scan registration results.
+            Summary of scan registration and enrichment results.
         """
         if self._dna_registry is None or not self.config.dna_scan_on_cycle:
             return {
@@ -314,6 +429,7 @@ class ContinuousOrganizerAgent:
                 "scanned": 0,
                 "registered": 0,
                 "already_known": 0,
+                "enriched": 0,
             }
 
         base = Path(self.config.base_path)
@@ -323,11 +439,13 @@ class ContinuousOrganizerAgent:
                 "scanned": 0,
                 "registered": 0,
                 "already_known": 0,
+                "enriched": 0,
             }
 
         scanned = 0
         registered = 0
         already_known = 0
+        enriched = 0
 
         # Walk the base path and register new files
         for file_path in base.rglob("*"):
@@ -350,10 +468,17 @@ class ContinuousOrganizerAgent:
                 already_known += 1
                 continue
 
-            # Register new file
+            # Register new file with enrichment
             try:
-                self._dna_registry.register_file(str_path, origin="scan")
-                registered += 1
+                reg_result = self._register_file_dna(
+                    str_path,
+                    origin="scan",
+                    enrich=self.config.enrichment_on_dna_registration,
+                )
+                if reg_result.get("dna_registered"):
+                    registered += 1
+                if reg_result.get("enrichment_result", {}).get("enriched"):
+                    enriched += 1
             except Exception:
                 # Non-blocking; continue with next file
                 pass
@@ -363,6 +488,7 @@ class ContinuousOrganizerAgent:
             "scanned": scanned,
             "registered": registered,
             "already_known": already_known,
+            "enriched": enriched,
         }
 
     def run_forever(self, max_cycles: int | None = None) -> None:
@@ -462,6 +588,16 @@ class ContinuousOrganizerAgent:
             "consolidation_registered": 0,
         }
 
+        enrichment_summary: dict[str, Any] = {
+            "enabled": self.config.enrichment_enabled,
+            "on_inbox": self.config.enrichment_on_inbox,
+            "on_dna_registration": self.config.enrichment_on_dna_registration,
+            "inbox_enriched": 0,
+            "scan_enriched": 0,
+            "consolidation_enriched": 0,
+            "total_enriched": 0,
+        }
+
         if self.config.dry_run_mode:
             # In dry-run mode: validate proposals without executing
             dry_run_summary = self._validate_dry_run(proposed_actions, plan, cycle_id)
@@ -477,6 +613,9 @@ class ContinuousOrganizerAgent:
             dna_summary["consolidation_registered"] = exec_result.get(
                 "dna_registered", 0
             )
+            enrichment_summary["consolidation_enriched"] = exec_result.get(
+                "enriched", 0
+            )
 
         # DNA scan for new files (runs after execution to catch moved files)
         if self.config.dna_registration_enabled and self.config.dna_scan_on_cycle:
@@ -484,9 +623,18 @@ class ContinuousOrganizerAgent:
             dna_summary["scanned"] = scan_result["scanned"]
             dna_summary["registered"] = scan_result["registered"]
             dna_summary["already_known"] = scan_result["already_known"]
+            enrichment_summary["scan_enriched"] = scan_result.get("enriched", 0)
 
         # Update DNA summary with inbox registrations (set in _process_inbox)
         dna_summary["inbox_registered"] = inbox_summary.get("dna_registered", 0)
+        enrichment_summary["inbox_enriched"] = inbox_summary.get("enriched", 0)
+
+        # Calculate total enriched
+        enrichment_summary["total_enriched"] = (
+            enrichment_summary["inbox_enriched"]
+            + enrichment_summary["scan_enriched"]
+            + enrichment_summary["consolidation_enriched"]
+        )
 
         cycle_summary = {
             "cycle_id": cycle_id,
@@ -522,6 +670,7 @@ class ContinuousOrganizerAgent:
             "dry_run": dry_run_summary,
             "dna": dna_summary,
             "dedup": dedup_summary,
+            "enrichment": enrichment_summary,
             "finished_at": _now_iso(),
         }
 
@@ -734,6 +883,7 @@ class ContinuousOrganizerAgent:
                 "failed_files": 0,
                 "status": "no_eligible_groups",
                 "dna_registered": 0,
+                "enriched": 0,
             }
 
         execution_plan = ConsolidationPlan(
@@ -745,14 +895,16 @@ class ContinuousOrganizerAgent:
         )
         result = execute_consolidation_plan(execution_plan)
 
-        # Register DNA for successfully moved files
+        # Register DNA for successfully moved files (also enriches if enabled)
         dna_registered = 0
+        enriched = 0
         if self._dna_registry is not None:
             for group_result in result.group_results:
                 dna_result = self._register_files_from_move_results(
                     group_result.folder_results, origin="consolidation"
                 )
                 dna_registered += dna_result["registered"]
+                enriched += dna_result.get("enriched", 0)
 
         return {
             "auto_execute_enabled": True,
@@ -761,6 +913,7 @@ class ContinuousOrganizerAgent:
             "failed_files": result.total_files_failed,
             "status": result.status.value,
             "dna_registered": dna_registered,
+            "enriched": enriched,
         }
 
     def _inbox_routing_to_action(
@@ -820,6 +973,7 @@ class ContinuousOrganizerAgent:
         queue_routings: list[InboxRouting] = []
 
         dna_registered = 0
+        enriched = 0
         if self.config.auto_execute:
             for r in result.routings:
                 if r not in high_confidence:
@@ -830,7 +984,7 @@ class ContinuousOrganizerAgent:
             auto_executed_count = sum(
                 1 for r in result.routings if r.status == "executed"
             )
-            # Register DNA for successfully executed inbox moves
+            # Register DNA and enrich successfully executed inbox moves
             if self._dna_registry is not None:
                 base = Path(self.config.base_path)
                 for r in result.routings:
@@ -839,12 +993,17 @@ class ContinuousOrganizerAgent:
                         dest_dir = base / r.destination_bin
                         dest_file = dest_dir / r.filename
                         if dest_file.exists():
-                            self._register_file_dna(
+                            # DNA registration + optional enrichment
+                            reg_result = self._register_file_dna(
                                 str(dest_file),
                                 origin="inbox",
                                 destination=str(dest_file),
+                                enrich=self.config.enrichment_on_inbox,
                             )
-                            dna_registered += 1
+                            if reg_result.get("dna_registered"):
+                                dna_registered += 1
+                            if reg_result.get("enrichment_result", {}).get("enriched"):
+                                enriched += 1
         else:
             queue_routings = [r for r in result.routings if r.destination_bin]
             auto_executed_count = 0
@@ -863,6 +1022,7 @@ class ContinuousOrganizerAgent:
                 "queue_count": len(actions),
                 "auto_executed_count": auto_executed_count,
                 "dna_registered": dna_registered,
+                "enriched": enriched,
                 "files": [
                     {
                         "filename": r.filename,

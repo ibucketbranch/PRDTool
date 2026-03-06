@@ -3664,3 +3664,46 @@ python3 -m organizer --learn-confirm
 - No vector database needed - structured metadata + text search
 
 **Status:** Completed - Phase 16.3 first task marked as done in PRD.md
+
+## Phase 16.3: Wire Enrichment into Agent Cycle
+**Date:** 2026-03-05
+**Status:** Completed
+
+### Summary
+Implemented enrichment integration into the continuous agent cycle. Files are now automatically enriched with metadata after successful inbox filing and after DNA registration. The enrichment is non-blocking and uses keyword fallback if LLM is unavailable.
+
+### Changes Made
+1. **organizer/continuous_agent.py**:
+   - Added `enrichment_enabled`, `enrichment_cache_file`, `enrichment_on_inbox`, `enrichment_on_dna_registration` config options
+   - Added `_init_enricher()` method to initialize LLMEnricher
+   - Added `_enrich_file_nonblocking()` method for non-blocking enrichment
+   - Updated `_register_file_dna()` to optionally trigger enrichment
+   - Updated `_register_files_from_move_results()` to track enrichment counts
+   - Updated `_scan_and_register_new_files()` to include enrichment
+   - Updated `_process_inbox()` to enrich files after successful filing
+   - Updated `_execute_high_confidence_groups()` to track enrichment
+   - Added `enrichment_summary` to cycle summary output
+
+2. **tests/test_continuous_agent.py**:
+   - Added 13 new tests for enrichment integration:
+     - test_enrichment_config_options_default
+     - test_enrichment_config_resolve_paths
+     - test_enrichment_disabled_in_config
+     - test_enrichment_enabled_creates_enricher
+     - test_enrich_file_nonblocking_success
+     - test_enrich_file_nonblocking_file_not_found
+     - test_enrich_file_nonblocking_enricher_disabled
+     - test_register_file_dna_with_enrichment
+     - test_register_file_dna_without_enrichment
+     - test_cycle_summary_includes_enrichment_stats
+     - test_scan_and_register_includes_enrichment
+     - test_register_files_from_move_results_includes_enrichment
+     - test_enrichment_nonblocking_does_not_fail_cycle
+
+### Test Results
+- All 13 enrichment tests pass
+- Existing tests continue to pass
+- Linting passes (ignoring pre-existing E402 and F841 errors)
+
+### PRD Task Updated
+- Marked Phase 16.3 task "Wire enrichment into agent cycle" as complete
